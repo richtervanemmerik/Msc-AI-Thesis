@@ -306,7 +306,7 @@ class Maverick_s2e(torch.nn.Module):
         )  # [batch_size, max_k, max_k]
         return coref_logits
 
-    def extract_clusters(gold_clusters):
+    def extract_clusters(self, gold_clusters):
         gold_clusters = [tuple(tuple(m) for m in cluster if (-1) not in m) for cluster in gold_clusters]
         gold_clusters = [cluster for cluster in gold_clusters if len(cluster) > 0]
         return gold_clusters
@@ -320,6 +320,7 @@ class Maverick_s2e(torch.nn.Module):
         gold_starts=None,
         gold_mentions=None,
         gold_clusters=None,
+        **kwargs
     ):
         last_hidden_states = self.encoder(input_ids=input_ids, attention_mask=attention_mask)["last_hidden_state"]  # B x S x TH
 

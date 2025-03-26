@@ -4,6 +4,7 @@ import math
 import numpy as np
 import httpx
 import logging
+import sys
 #logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
@@ -71,11 +72,28 @@ class Maverick_mes(torch.nn.Module):
         self.token_hidden_size = self.encoder_config.hidden_size
         self.span_pooling = SpanPooling(self.token_hidden_size)
 
-        # Define dimension of KG embeddings (32)
-        self.kg_embedding_dim = 32
-        # Define fusion layer to project concatenated [mention_rep; kg_embedding] back to hidden dim.
-        self.kg_fusion_layer = nn.Linear(self.token_hidden_size * 3 + self.kg_embedding_dim, self.token_hidden_size * 3)
+        # Define dimension of KG embeddings
+        self.kg_embedding_dim = 100
+        self.comb_mlp_hidden = 64  # or any small dimension you like
+        self.comb_mlp = nn.Sequential(
+            nn.Linear(2, self.comb_mlp_hidden),
+            nn.ReLU(),
+            nn.Linear(self.comb_mlp_hidden, 1)
+        )
+
         self.entity_linker = SpacyEntityLinkerWrapper()
+
+        relation_file = kwargs["relation_path"]
+        self.num_relations = 594
+        self.relation_embeddings = self.load_relation_embeddings(relation_file, self.num_relations, dim=100)
+
+        self.embedding_shape = (20982733, 100)
+        entity2id_file = kwargs["entity2id_path"]
+        embeddings_file = kwargs["embeddings_path"]
+        # Load the mapping dictionary from string IDs to integer indices
+        self.entity_to_index = self.load_entity_ids(entity2id_file)
+        # Load the embeddings as a memmap for efficient, disk-backed access
+        self.embeddings = self.load_embeddings(embeddings_file, self.embedding_shape)
 
         # if span representation method is to concatenate start and end, a mention hidden size will be 2*token_hidden_size
         if self.span_representation == "concat_start_end":
@@ -92,7 +110,6 @@ class Maverick_mes(torch.nn.Module):
             input_dim=self.token_hidden_size,
             output_dim=self.all_cats_size,
             hidden_dim=self.token_hidden_size,
-            num_blocks=1,
         )
 
         self.coref_end_all_mlps = RepresentationLayer(
@@ -100,8 +117,9 @@ class Maverick_mes(torch.nn.Module):
             input_dim=self.token_hidden_size,
             output_dim=self.all_cats_size,
             hidden_dim=self.token_hidden_size,
-            num_blocks=1,
         )
+
+        self.kg_scale = nn.Parameter(torch.tensor(0.1))
 
         self.antecedent_s2s_all_weights = nn.Parameter(
             torch.empty((self.num_cats, self.token_hidden_size, self.token_hidden_size))
@@ -128,7 +146,6 @@ class Maverick_mes(torch.nn.Module):
             input_dim=self.token_hidden_size,
             output_dim=self.token_hidden_size,
             hidden_dim=self.token_hidden_size,
-            num_blocks=1,
         )
 
         # representation of end token
@@ -137,7 +154,6 @@ class Maverick_mes(torch.nn.Module):
             input_dim=self.token_hidden_size,
             output_dim=self.token_hidden_size,
             hidden_dim=self.token_hidden_size,
-            num_blocks=1,
         )
 
         # models probability to be the start of a mention
@@ -146,7 +162,6 @@ class Maverick_mes(torch.nn.Module):
             input_dim=self.token_hidden_size,
             output_dim=1,
             hidden_dim=self.token_hidden_size,
-            num_blocks=1,
         )
 
         # model mention probability from start and end representations
@@ -155,7 +170,6 @@ class Maverick_mes(torch.nn.Module):
             input_dim=self.mention_hidden_size,
             output_dim=1,
             hidden_dim=self.token_hidden_size,
-            num_blocks=1,
         )
         # for every candidate mention, predicts whether it is a singleton
         self.singleton_classifier = RepresentationLayer(
@@ -163,7 +177,6 @@ class Maverick_mes(torch.nn.Module):
             input_dim=self.mention_hidden_size,  # expects the mention representation dimension
             output_dim=1,
             hidden_dim=self.token_hidden_size,
-            num_blocks=1,
         )
         self.reset_parameters()
 
@@ -188,62 +201,111 @@ class Maverick_mes(torch.nn.Module):
             bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
             init.uniform_(b, -bound, bound)
 
-    def fetch_kg_embedding(self, entity_id):
-        """
-        Fetch KG embedding for a given entity_id using the embeddings.cc API.
-        Returns a tensor of shape (kg_embedding_dim,). If no embedding is found,
-        returns a zero vector.
-        """
-        url = "https://embeddings.cc/api/v1/get_embeddings"
-        try:
-            response = httpx.post(url, json={'entities': [entity_id]})
-            #response.raise_for_status()
-            # if response.status_code == 200:
-            #     print(response.json())
-            # else:
-            #     print('Error:', response.text)
-            data = response.json()
-            print(f"Data for entity {entity_id}: {data}")
-            # Check if the returned data is non-empty and in the expected format.
-            if not data or len(data) == 0 or len(data[0]) < 2:
-                #print(f"Warning: No embedding returned for entity {entity_id}.")
-                return torch.zeros(self.kg_embedding_dim, device=self.encoder.device)
-            embedding = torch.tensor(data[0][1], dtype=torch.float32, device=self.encoder.device)
-            return embedding
-        except Exception as e:
-            #print(f"Error fetching KG embedding for entity {entity_id}: {e}")
-            return torch.zeros(self.kg_embedding_dim, device=self.encoder.device)
+    # def fetch_kg_embedding(self, entity_id):
+    #     """
+    #     Fetch KG embedding for a given entity_id using the embeddings.cc API.
+    #     Returns a tensor of shape (kg_embedding_dim,). If no embedding is found,
+    #     returns a zero vector.
+    #     """
+    #     url = "https://embeddings.cc/api/v1/get_embeddings"
+    #     try:
+    #         response = httpx.post(url, json={'entities': [entity_id]})
+    #         #response.raise_for_status()
+    #         # if response.status_code == 200:
+    #         #     print(response.json())
+    #         # else:
+    #         #     print('Error:', response.text)
+    #         data = response.json()
+    #         print(f"Data for entity {entity_id}: {data}")
+    #         # Check if the returned data is non-empty and in the expected format.
+    #         if not data or len(data) == 0 or len(data[0]) < 2:
+    #             #print(f"Warning: No embedding returned for entity {entity_id}.")
+    #             return torch.zeros(self.kg_embedding_dim, device=self.encoder.device)
+    #         embedding = torch.tensor(data[0][1], dtype=torch.float32, device=self.encoder.device)
+    #         return embedding
+    #     except Exception as e:
+    #         #print(f"Error fetching KG embedding for entity {entity_id}: {e}")
+    #         return torch.zeros(self.kg_embedding_dim, device=self.encoder.device)
 
-    def augment_mention_reps_with_kg(self, mention_idxs, mention_reps, tokens, bidx=0):
-        fused_reps = []
-        # For each predicted mention, convert span indices to a string.
-        for i, span in enumerate(mention_idxs.tolist()):
-            start_idx, end_idx = span[0], span[1]
-            # Here tokens[bidx] is the list of tokens for the document.
-            mention_tokens = tokens[bidx][start_idx:end_idx+1]
+    def load_relation_embeddings(self, bin_file: str, num_relations: int, dim: int):
+        """
+        Loads the .bin file of float embeddings for each relation.
+        The data presumably is stored row-wise, so total shape is [num_relations, dim].
+        We'll read it into a numpy array, then you can store it or convert to torch.
+        """
+        
+        # The .bin presumably contains num_relations*dim floats in row-major order.
+        total_floats = num_relations * dim
+        # e.g. np.fromfile can read a binary file as float32:
+        rel_data = np.fromfile(bin_file, dtype=np.float32, count=total_floats)
+        
+        # Now reshape to [num_relations, dim]
+        rel_data = rel_data.reshape((num_relations, dim))
+        return rel_data
+    
+    def load_entity_ids(self, mapping_file):
+        """Loads entity-to-index mapping from a file."""
+        entity_to_index = {}
+        with open(mapping_file, 'r') as f:
+            next(f)  # Skip header if necessary
+            for line in f:
+                entity, index = line.strip().split('\t')
+                entity_to_index[entity] = int(index)
+        return entity_to_index
+
+    def load_embeddings(self, embeddings_file, embedding_shape):
+        """Loads embeddings as a memory-mapped NumPy array."""
+        return np.memmap(embeddings_file, dtype=np.float32, mode='r', shape=embedding_shape)
+
+    def get_embedding(self, entity_str, default_embedding=None):
+        """Retrieves the embedding for a given entity string.
+        
+        Returns a torch tensor on the same device as needed.
+        """
+        idx = self.entity_to_index.get(entity_str)
+        if idx is None:
+            # Return a default embedding (e.g., zeros) if the entity isn't found.
+            return default_embedding if default_embedding is not None else torch.zeros(self.kg_embedding_dim)
+        # Get the embedding row from the memmap and convert it to a torch tensor.
+        emb_np = self.embeddings[idx]
+        emb_tensor = torch.from_numpy(emb_np)
+        return emb_tensor
+    
+    def get_kg_embeddings_for_all_mentions(self, mention_idxs, mentions_start_hidden_states, tokens, bidx=0):
+        """
+        For each mention:
+        - Convert span indices to text.
+        - Link to an entity ID using self.entity_linker.
+        - Look up the corresponding KG embedding (self.get_embedding).
+        """
+        kg_embeddings_for_all_mentions = []
+
+        # We'll assume batch_size=1 for convenience
+        for i, (start_idx, end_idx) in enumerate(mention_idxs.tolist()):
+            mention_tokens = tokens[bidx][start_idx : end_idx+1]
             mention_text = " ".join(mention_tokens)
-            # Entity linking: get entity id (or None if no match)
+
+            # Link mention -> entity id
             entity_id = self.entity_linker.get_entity(mention_text)
             if entity_id is not None:
-                kg_emb = self.fetch_kg_embedding(entity_id)
+                kg_emb = self.get_embedding(entity_id).to(mentions_start_hidden_states.device)
             else:
-                kg_emb = torch.zeros(self.kg_embedding_dim, device=mention_reps.device)
-            if not torch.equal(kg_emb, torch.zeros(self.kg_embedding_dim, device=mention_reps.device)):    
-                print(f"Entity ID for '{mention_text}': {entity_id}")
-                print(f"KG embedding for '{mention_text}': {kg_emb}")
-            # Fuse the original mention rep with the KG embedding (concatenation)
-            # Here mention_reps[i] is the textual representation of the mention.
-            combined = torch.cat([mention_reps[i], kg_emb], dim=-1)
-            # Project the fused vector back to the expected dimension.
-            fused = self.kg_fusion_layer(combined)
-            fused_reps.append(fused)
-        if len(fused_reps) > 0:
-            fused_reps = torch.stack(fused_reps, dim=0)
-        else:
-            # In case there are no mentions, return an empty tensor with proper shape.
-            fused_reps = torch.empty(0, self.token_hidden_size * 2, device=mention_reps.device)
-        return fused_reps
+                kg_emb = torch.zeros(self.kg_embedding_dim, device=mentions_start_hidden_states.device)
 
+            # if not torch.equal(kg_emb, torch.zeros(self.kg_embedding_dim, device=mentions_start_hidden_states.device)):
+            #     print(f"KG embedding found for mention '{mention_text}' with entity ID '{entity_id}'")
+            
+            # Store the KG embedding for this mention
+            kg_embeddings_for_all_mentions.append(kg_emb)
+
+        # final shape => [num_mentions, hidden_dim] => [1, num_mentions, hidden_dim]
+        if kg_embeddings_for_all_mentions:
+            kg_embeddings_for_all_mentions = torch.stack(kg_embeddings_for_all_mentions, dim=0)
+        else:
+            kg_embeddings_for_all_mentions = torch.empty(1, 0, self.kg_embedding_dim, device=mentions_start_hidden_states.device)
+
+        return kg_embeddings_for_all_mentions
+    
     # takes last_hidden_states, eos_mask, ground truth and stage
     def eos_mention_extraction(self, lhs, eos_mask, gold_mentions, gold_starts, stage):
         start_idxs = []
@@ -366,11 +428,11 @@ class Maverick_mes(torch.nn.Module):
         return all_labels
 
     def mes_span_clustering(
-        self, mention_start_reps, mention_end_reps, mention_start_idxs, mention_end_idxs, gold, stage, mask, add, sing
+        self, mention_start_reps, mention_end_reps, mention_kg_embeddings, mention_start_idxs, mention_end_idxs, gold, stage, mask, add, sing
     ):
         if mention_start_reps[0].shape[0] == 0:
             return torch.tensor([0.0], requires_grad=True, device=self.encoder.device), []
-        coref_logits = self._calc_coref_logits(mention_start_reps, mention_end_reps)
+        coref_logits = self._calc_coref_logits(mention_start_reps, mention_end_reps, mention_kg_embeddings)
         coref_logits = coref_logits[0] * mask[0]
         coreference_loss = torch.tensor([0.0], requires_grad=True, device=self.encoder.device)
 
@@ -392,7 +454,90 @@ class Maverick_mes(torch.nn.Module):
         x = x.view(*new_x_shape)
         return x.permute(0, 2, 1, 3)  # bnkf/bnlg
 
-    def _calc_coref_logits(self, top_k_start_coref_reps, top_k_end_coref_reps):
+    def _calc_kg_score(self, kg_embs: torch.Tensor) -> torch.Tensor:
+        """
+        The 'max over relations' TransE approach:
+        score_ij = max_{r} [ gamma - min(||h_i + r - h_j||, ||h_j + r - h_i||) ]
+        """
+        device = kg_embs.device  # mention embeddings on GPU/CPU
+        # if you haven't already stored them as a buffer, convert to torch:
+        rel_embs = torch.from_numpy(self.relation_embeddings).to(device)  # shape (num_relations, rel_dim)
+
+        N = kg_embs.size(0)
+        kg_score_mat = torch.zeros(N, N, device=device)
+        gamma = 10  # or a hyperparam
+
+        for i in range(N):
+            # 1) h_i is shape (dim,)
+            h_i = kg_embs[i]  # (dim,)
+
+            # 2) For each relation r, compute (h_i + r).
+            #    rel_embs is (R, dim). So (h_i + r) is also (R, dim).
+            hi_plus_r = h_i.unsqueeze(0) + rel_embs  # shape => (R, dim)
+
+            # 3) We want to subtract each h_j (for j=0..N-1).
+            #    We'll do that all at once with broadcasting:
+            #    (N, 1, dim) minus (1, R, dim) => (N, R, dim).
+            #    But we first want (h_i + r) - h_j => so we do
+            #         diff_i = hi_plus_r.unsqueeze(0) - h_j.unsqueeze(1)
+            #
+            #    h_j is shape (N, dim).
+            h_j = kg_embs  # shape (N, dim)
+
+            diff_i = hi_plus_r.unsqueeze(0) - h_j.unsqueeze(1)  # (N, R, dim)
+            dist_i = torch.norm(diff_i, p=1, dim=-1)  # => (N, R) [L1 or L2]
+
+            # 4) For the symmetrical check: 
+            #    we compute (h_j + r) - h_i, again for each j and each r.
+            #    (h_j + r) => shape (N, R, dim),
+            #    then we subtract h_i => shape(1, dim) => broadcast => also (N, R, dim).
+            #    So we do:
+            hj_plus_r = h_j.unsqueeze(1) + rel_embs.unsqueeze(0)  # (N, R, dim)
+            diff_j = hj_plus_r - h_i.unsqueeze(0).unsqueeze(1)    # (N, R, dim)
+            dist_j = torch.norm(diff_j, p=1, dim=-1)              # => (N, R)
+
+            # 5) We now have two distance arrays: dist_i, dist_j each shape (N, R).
+            #    We do the min => combined_dist => shape(N, R).
+            combined_dist = torch.min(dist_i, dist_j)
+
+            # 6) Convert distance to a “score” => gamma - dist => shape(N, R)
+            single_score = gamma - combined_dist
+
+            # 7) We want the max across all relations r => shape(N,)
+            best_r_score = single_score.max(dim=1).values  # (N,)
+
+            # 8) Fill out the row i (and also symmetrical for i->j, j->i)
+            kg_score_mat[i, :] = best_r_score
+            kg_score_mat[:, i] = best_r_score
+
+        return kg_score_mat
+    
+    # def _calc_kg_score_distance(self, kg_embs: torch.Tensor) -> torch.Tensor:
+    #     """
+    #     Compute NxN structural consistency among all mentions in a single doc.
+        
+    #     kg_embs: shape (N, kg_dim) for each mention's KG embedding
+    #     returns: NxN matrix of structural logit or score
+    #     """
+    #     # Example: no per-relation search, just a simple "dot product" or "TransE distance" approach
+    #     # naive approach:  score = - L1 distance( e_i, e_j ), shaped NxN
+        
+    #     N = kg_embs.size(0)  # number of mentions
+    #     # Expand and broadcast so we get pairwise distance
+    #     # shape = (N, N, kg_dim)
+    #     e_i = kg_embs.unsqueeze(1).expand(-1, N, -1)
+    #     e_j = kg_embs.unsqueeze(0).expand(N, -1, -1)
+        
+    #     # Compute L1 distance
+    #     l1_dist = torch.abs(e_i - e_j).sum(dim=-1)  # NxN
+    #     # Convert distance to a negative score (the smaller the distance, the bigger the score).
+    #     # Possibly also subtract from margin or do a "score = gamma - distance" approach
+    #     gamma = 24.0
+    #     kg_score = gamma - l1_dist  # NxN
+    #     return kg_score
+
+
+    def _calc_coref_logits(self, top_k_start_coref_reps, top_k_end_coref_reps, mention_kg_embeddings):
         all_starts = self.transpose_for_scores(self.coref_start_all_mlps(top_k_start_coref_reps))
         all_ends = self.transpose_for_scores(self.coref_end_all_mlps(top_k_end_coref_reps))
 
@@ -410,7 +555,29 @@ class Maverick_mes(torch.nn.Module):
             + torch.einsum("bnkf, nf -> bnk", all_starts, self.antecedent_e2s_all_biases).unsqueeze(-2)
         )
 
-        return logits + biases
+        mes_logits = logits + biases  # shape: [b, n, k, k] 
+
+        if mention_kg_embeddings is not None:
+            kg_score_mat = self._calc_kg_score(mention_kg_embeddings)  # shape NxN
+            # Expand to match shape => (1, num_cats, N, N)
+            kg_score_mat_expanded = kg_score_mat.unsqueeze(0).unsqueeze(1).expand(mes_logits.shape)
+        else:
+            # If no KG info
+            kg_score_mat_expanded = torch.zeros_like(mes_logits)   
+
+        # Step A: stack them along last dim => shape (1, num_cats, N, N, 2)
+        combined_input = torch.stack([mes_logits, kg_score_mat_expanded], dim=-1)
+        
+        # Step B: flatten to (1*num_cats*N*N, 2)
+        B, C, M, M2, feat = combined_input.shape  # B=1, feat=2
+        reshaped = combined_input.view(B*C*M*M2, feat)
+        
+        # Step C: pass through MLP => shape (B*C*M*M2, 1)
+        mlp_out = self.comb_mlp(reshaped)
+        
+        # Step D: reshape back to (B, C, M, M2)
+        final_logits = mlp_out.view(B, C, M, M2)
+        return final_logits
 
     def _get_categories_labels(self, tokens, subtoken_map, new_token_map, span_starts, span_ends):
         max_k = span_starts.shape[0]
@@ -589,7 +756,8 @@ class Maverick_mes(torch.nn.Module):
             else:
                 pred_singleton_mask.append(0)
         return pred_singleton_mask
-
+    
+        
     def forward(
         self,
         stage,
@@ -606,9 +774,9 @@ class Maverick_mes(torch.nn.Module):
         add=None,
         singletons=True,
         longdoc=None,
-        **kwargs
+        step=None,
     ):
-
+        self.step = step
         loss = torch.tensor([0.0], requires_grad=True, device=self.encoder.device)
         loss_dict = {}
         preds = {}
@@ -664,7 +832,12 @@ class Maverick_mes(torch.nn.Module):
                 mention_reps = torch.cat((mentions_start_hidden_states, mentions_end_hidden_states), dim=-1)
 
             if tokens is not None:
-                augmented_reps = self.augment_mention_reps_with_kg(mention_idxs, enriched_mention_reps, tokens, bidx=0)
+                mention_kg_embeddings = self.get_kg_embeddings_for_all_mentions(
+                    mention_idxs,
+                    mentions_start_hidden_states,
+                    tokens,
+                    bidx=0
+                )  
             mention_start_idxs = mention_idxs[:, 0]
             mention_end_idxs = mention_idxs[:, 1]
             mentions_start_hidden_states = torch.index_select(lhs, 1, mention_start_idxs)
@@ -686,13 +859,11 @@ class Maverick_mes(torch.nn.Module):
         _, categories_masks = self._get_categories_labels(
             tokens, subtoken_map, new_token_map, mention_start_idxs, mention_end_idxs
         )
-        augmented_start_reps = augmented_reps[:, :self.token_hidden_size] 
-        augmented_end_reps   = augmented_reps[:, 2*self.token_hidden_size:3*self.token_hidden_size]
-        augmented_start_reps = augmented_start_reps.unsqueeze(0)
-        augmented_end_reps = augmented_end_reps.unsqueeze(0)
+
         coreference_loss, coreferences = self.mes_span_clustering(
-            augmented_start_reps,
-            augmented_end_reps,
+            mentions_start_hidden_states,
+            mentions_end_hidden_states,
+            mention_kg_embeddings,
             mention_start_idxs,
             mention_end_idxs,
             gold_clusters,

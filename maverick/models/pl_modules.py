@@ -40,9 +40,24 @@ class BasePLModule(pl.LightningModule):
         start_evaluator = OfficialMentionEvaluator()
         cluster_mention_evaluator = OfficialMentionEvaluator()
         coref_evaluator = OfficialCoNLL2012CorefEvaluator()
+        singleton_evaluator = OfficialSingletonEvaluator()
         result = {}
 
         for pred, gold in zip(predictions, golds):
+            # Evaluate singletons:
+            if "gold_singletons" in pred and "singletons" in pred:
+                # Convert to lists if the values are tensors.
+                pred_singletons = pred["singletons"]
+                gold_singletons = pred["gold_singletons"]
+                if torch.is_tensor(pred_singletons):
+                    pred_singletons = pred_singletons.cpu().tolist()
+                if torch.is_tensor(gold_singletons):
+                    gold_singletons = gold_singletons.cpu().tolist()
+                # Print converted values.
+                #print("Converted pred_singletons:", pred_singletons)
+                #print("Converted gold_singletons:", gold_singletons)    
+                singleton_evaluator.update(pred_singletons, gold_singletons)
+
             if "start_idxs" in pred.keys():
                 starts_pred = pred["start_idxs"][0].tolist()
                 starts_gold = (gold["gold_starts"][0] == 1).nonzero(as_tuple=False).squeeze(-1).tolist()
@@ -98,6 +113,13 @@ class BasePLModule(pl.LightningModule):
                     metric + "_recall": r,
                 }
             )
+        p, r, f1 = singleton_evaluator.get_prf()
+        result.update({
+        "singleton_f1_score": f1,
+        "singleton_precision": p,
+        "singleton_recall": r,
+        })
+    
         return result
 
     def training_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
@@ -106,6 +128,7 @@ class BasePLModule(pl.LightningModule):
             input_ids=batch["input_ids"],
             attention_mask=batch["attention_mask"],
             eos_mask=batch["eos_mask"],
+            raw_gold_clusters=batch["raw_gold_clusters"],
             gold_starts=batch["gold_starts"],
             gold_mentions=batch["gold_mentions"],
             gold_clusters=batch["gold_clusters"],
@@ -113,6 +136,7 @@ class BasePLModule(pl.LightningModule):
             subtoken_map=batch["subtoken_map"],
             new_token_map=batch["new_token_map"],
             singletons=batch["singletons"],
+            step=self.global_step,
         )
         self.log_dict({"train/" + k: v for k, v in output["loss_dict"].items()}, on_step=True)
         return output["loss"]
@@ -123,6 +147,7 @@ class BasePLModule(pl.LightningModule):
             input_ids=batch["input_ids"],
             attention_mask=batch["attention_mask"],
             eos_mask=batch["eos_mask"],
+            raw_gold_clusters=batch["raw_gold_clusters"],
             gold_starts=batch["gold_starts"],
             gold_mentions=batch["gold_mentions"],
             gold_clusters=batch["gold_clusters"],
@@ -130,6 +155,7 @@ class BasePLModule(pl.LightningModule):
             subtoken_map=batch["subtoken_map"],
             new_token_map=batch["new_token_map"],
             singletons=batch["singletons"],
+            step=self.global_step,
         )
         self.log_dict({"val/" + k: v for k, v in output["loss_dict"].items()})
         output["pred_dict"]["clusters"] = original_token_offsets(
@@ -163,11 +189,13 @@ class BasePLModule(pl.LightningModule):
             input_ids=batch["input_ids"],
             attention_mask=batch["attention_mask"],
             eos_mask=batch["eos_mask"],
-            eos_indices=batch["eos_indices"],
+            raw_gold_clusters=batch["raw_gold_clusters"],
+            #eos_indices=batch["eos_indices"],
             tokens=batch["tokens"],
             subtoken_map=batch["subtoken_map"],
             new_token_map=batch["new_token_map"],
             singletons=batch["singletons"],
+            step=self.global_step,
         )
         self.log_dict({"test/" + k: v for k, v in output["loss_dict"].items()})
         output["pred_dict"]["clusters"] = original_token_offsets(
