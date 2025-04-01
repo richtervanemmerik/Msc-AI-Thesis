@@ -62,19 +62,20 @@ class Maverick_incr(torch.nn.Module):
         # span hidden dimension
         self.token_hidden_size = self.encoder_config.hidden_size
         self.span_pooling = SpanPooling(self.token_hidden_size)
-        if kwargs["huggingface_model_name"] == "answerdotai/ModernBERT-base":
-            self.embedding_shape = (20982733, 100)
-            entity2id_file = kwargs["entity2id_path"]
-            embeddings_file = kwargs["embeddings_path"]
-            # Load the mapping dictionary from string IDs to integer indices
-            self.entity_to_index = self.load_entity_ids(entity2id_file)
-            # Load the embeddings as a memmap for efficient, disk-backed access
-            self.embeddings = self.load_embeddings(embeddings_file, self.embedding_shape)
-            self.kg_embedding_dim = 100
-            self.kg_fusion_layer = nn.Linear(self.token_hidden_size * 2 + self.kg_embedding_dim, self.token_hidden_size * 2)
-            self.entity_linker = SpacyEntityLinkerWrapper()
-            self.kg_projector = nn.Linear(self.kg_embedding_dim, self.token_hidden_size * 2)
-            self.gating_fusion = GatingFusion(hidden_dim=self.token_hidden_size * 2, kg_dim=self.kg_embedding_dim)
+        self.embedding_shape = (20982733, 100)
+        entity2id_file = kwargs["entity2id_path"]
+        embeddings_file = kwargs["embeddings_path"]
+        # Load the mapping dictionary from string IDs to integer indices
+        self.entity_to_index = self.load_entity_ids(entity2id_file)
+        self._all_entity_ids = list(self.entity_to_index.keys())
+
+        # Load the embeddings as a memmap for efficient, disk-backed access
+        self.embeddings = self.load_embeddings(embeddings_file, self.embedding_shape)
+        self.kg_embedding_dim = 100
+        self.kg_fusion_layer = nn.Linear(self.token_hidden_size * 2 + self.kg_embedding_dim, self.token_hidden_size * 2)
+        self.entity_linker = SpacyEntityLinkerWrapper()
+        self.kg_projector = nn.Linear(self.kg_embedding_dim, self.token_hidden_size * 2)
+        self.gating_fusion = GatingFusion(hidden_dim=self.token_hidden_size * 2, kg_dim=self.kg_embedding_dim)
         
 
         # if span representation method is to concatenate start and end, a mention hidden size will be 2*token_hidden_size
@@ -163,11 +164,15 @@ class Maverick_incr(torch.nn.Module):
         emb_tensor = torch.from_numpy(emb_np)
         return emb_tensor
     
-    def augment_mention_reps_with_kg(self, mention_idxs, mention_hidden_states, tokens, bidx=0, combining_method="gating"):
+    def augment_mention_reps_with_kg(self, mention_idxs, mention_hidden_states, tokens, bidx=0, combining_method="fusion", use_random_kg_id=True):
         fused_reps = []
         self.epoch_kg_found = 0
         self.epoch_mentions = 0
         mention_hidden_states = mention_hidden_states.squeeze(0)
+
+        can_use_random = use_random_kg_id and bool(self._all_entity_ids)
+        if use_random_kg_id and not bool(self._all_entity_ids):
+             print("Warning: use_random_kg_id is True, but no entity IDs are available for random sampling.")
         
         # For each predicted mention, convert span indices to a string.
         for i, span in enumerate(mention_idxs.tolist()):
@@ -178,9 +183,13 @@ class Maverick_incr(torch.nn.Module):
             # Entity linking: get entity id (or None if no match)
             entity_id = self.entity_linker.get_entity(mention_text)
             self.epoch_mentions += 1
-            
+
             if entity_id is not None:
-                kg_emb = self.get_embedding(entity_id).to(mention_hidden_states.device)
+                if can_use_random:
+                    retrieved_entity_id = random.choice(self._all_entity_ids)
+                else:
+                    retrieved_entity_id = entity_id    
+                kg_emb = self.get_embedding(retrieved_entity_id).to(mention_hidden_states.device)
             else:
                 kg_emb = torch.zeros(self.kg_embedding_dim, device=mention_hidden_states.device)
 
@@ -592,13 +601,13 @@ class Maverick_incr(torch.nn.Module):
 
         mentions_hidden_states = torch.cat((mentions_start_hidden_states, mentions_end_hidden_states), dim=2)
 
-        #if tokens is not None:
-            #mentions_hidden_states_kg = self.augment_mention_reps_with_kg(mention_idxs, mentions_hidden_states, tokens, bidx=0)
-        #mentions_hidden_states_kg = mentions_hidden_states_kg.unsqueeze(0)
+        if tokens is not None:
+            mentions_hidden_states_kg = self.augment_mention_reps_with_kg(mention_idxs, mentions_hidden_states, tokens, bidx=0)
+        mentions_hidden_states_kg = mentions_hidden_states_kg.unsqueeze(0)
         # Build mention representations using the separate function.
         #mentions_hidden_states = self.build_mention_representations(lhs, mention_idxs)
 
-        mentions_hidden_states = self.incremental_span_encoder(mentions_hidden_states)
+        mentions_hidden_states = self.incremental_span_encoder(mentions_hidden_states_kg)
 
         coreference_loss, coreferences = self.incremental_span_clustering(
             mentions_hidden_states, mention_idxs, gold_clusters, stage
