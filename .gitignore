@@ -5,8 +5,12 @@ modelss/*
 .vscode
 best/*
 resources/*
+conll-2012/*
 maverick/utils/corefconversion/*
 debugg.py
+maverick_coref.egg-info/*
+checkpoints/*
+wandb/*
 # Created by https://www.toptal.com/developers/gitignore/api/jetbrains+all,vscode,python,jupyternotebooks,linux,windows,macos
 # Edit at https://www.toptal.com/developers/gitignore?templates=jetbrains+all,vscode,python,jupyternotebooks,linux,windows,macos
 
@@ -327,6 +331,8 @@ $RECYCLE.BIN/
 
 # Windows shortcuts
 *.lnk
+
+**/.aml
 
 # End of https://www.toptal.com/developers/gitignore/api/jetbrains+all,vscode,python,jupyternotebooks,linux,windows,macos
 
