@@ -14,7 +14,7 @@ module:
     num_training_steps: 80000
   opt: "Adafactor" #RAdam
   model:
-    _target_: models.model_s2e.Model
+    _target_: models.model_s2e.Maverick_s2e
     language_model: "deberta-v3-large"
     huggingface_model_name: "microsoft/deberta-v3-large"
     freeze_encoder: False

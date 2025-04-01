@@ -1,0 +1,20 @@
+program: train.py 
+method: random 
+metric:
+  name: val/conll2012_f1_score 
+  goal: maximize
+parameters:
+  module.Adafactor.lr:
+    values: [5.0e-6, 1.0e-5, 3.0e-5]
+  module.lr_scheduler.num_warmup_steps:
+    values: [500, 900, 1200]
+  module.lr_scheduler.num_training_steps:
+    values: [5000, 10000, 15000]
+  train.pl_trainer.accumulate_grad_batches:
+    values: [2, 4, 8]
+
+
+command:
+  - ${env}              
+  - ${program}         
+  - ${args_no_hyphens}    

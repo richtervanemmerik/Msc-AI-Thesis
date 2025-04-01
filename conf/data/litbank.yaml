@@ -33,7 +33,7 @@ datamodule:
     test: 1
 
   num_workers:
-    train: 0
-    val: 0
-    test: 0
+    train: 3
+    val: 3
+    test: 3
 

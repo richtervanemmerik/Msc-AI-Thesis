@@ -18,4 +18,8 @@ module:
     language_model: "deberta-v3-base"
     huggingface_model_name: "microsoft/deberta-v3-base"
     freeze_encoder: False
+    unfrozen_layers: 18
     span_representation: "concat_start_end"
+    mention_treshold: 0.5
+    singleton_loss: False
+    singleton_detector: False
