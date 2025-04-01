@@ -188,31 +188,6 @@ class Maverick_mes(torch.nn.Module):
             bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
             init.uniform_(b, -bound, bound)
 
-    def fetch_kg_embedding(self, entity_id):
-        """
-        Fetch KG embedding for a given entity_id using the embeddings.cc API.
-        Returns a tensor of shape (kg_embedding_dim,). If no embedding is found,
-        returns a zero vector.
-        """
-        url = "https://embeddings.cc/api/v1/get_embeddings"
-        try:
-            response = httpx.post(url, json={'entities': [entity_id]})
-            #response.raise_for_status()
-            # if response.status_code == 200:
-            #     print(response.json())
-            # else:
-            #     print('Error:', response.text)
-            data = response.json()
-            print(f"Data for entity {entity_id}: {data}")
-            # Check if the returned data is non-empty and in the expected format.
-            if not data or len(data) == 0 or len(data[0]) < 2:
-                #print(f"Warning: No embedding returned for entity {entity_id}.")
-                return torch.zeros(self.kg_embedding_dim, device=self.encoder.device)
-            embedding = torch.tensor(data[0][1], dtype=torch.float32, device=self.encoder.device)
-            return embedding
-        except Exception as e:
-            #print(f"Error fetching KG embedding for entity {entity_id}: {e}")
-            return torch.zeros(self.kg_embedding_dim, device=self.encoder.device)
 
     def augment_mention_reps_with_kg(self, mention_idxs, mention_reps, tokens, bidx=0):
         fused_reps = []

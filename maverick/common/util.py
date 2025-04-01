@@ -5,10 +5,38 @@ import torch
 import pytorch_lightning as pl
 
 from nltk import sent_tokenize
-from torch.nn import Module, Linear, LayerNorm, Dropout, GELU
+from torch.nn import Module, Linear, LayerNorm, Dropout, GELU, GLU
+from torch import nn
+import torch.nn.functional as F
 
 from maverick.common.constants import *
 
+class SpacyEntityLinkerWrapper:
+    def __init__(self, spacy_model="en_core_web_lg"):
+        # Load the spaCy language model.
+        self.nlp = spacy.load(spacy_model)
+        # Add the entity linker pipeline component if not already present.
+        if "entityLinker" not in self.nlp.pipe_names:
+            self.nlp.add_pipe("entityLinker", last=True)
+    
+    def get_entity(self, mention_text):
+        """
+        Process the mention text using spaCy and return the Wikidata ID 
+        of the first linked entity in the format expected by the embeddings API.
+        """
+        doc = self.nlp(mention_text)
+        # Check if any linked entities were found.
+        if len(doc._.linkedEntities) > 0:
+            # For this example, we select the first entity.
+            entity = doc._.linkedEntities[0]
+            url = entity.get_url()
+            # Convert URL from the '/wiki/' format to the '/entity/' format.
+            if url.startswith("https://www.wikidata.org/wiki/"):
+                url = url.replace("https://www.wikidata.org/wiki/", "http://www.wikidata.org/entity/")
+            # Extract the ID which starts with 'Q'
+            entity_id = url.split('/')[-1]
+            return entity_id
+        return None
 
 def get_category_id(mention, antecedent):
     mention, mention_pronoun_id = mention
@@ -120,6 +148,73 @@ def unpad_gold_clusters(gold_clusters):
                 new_gold_clusters.append(tuple(new_cluster))
     return new_gold_clusters
 
+class GatingFusion(nn.Module):
+    """
+    Gating Fusion: 
+      h_m: the mention (textual) representation (shape: [batch_size, hidden_dim])
+      z_m: the KG embedding (shape: [batch_size, hidden_dim] or 
+            shape: [batch_size, kg_dim] projected up to 'hidden_dim')
+      
+    The module learns a gate g = σ(Wg [h_m; z_m]), and produces:
+      h_m_tilde = g ⊙ h_m + (1 - g) ⊙ z_m
+    """
+    def __init__(self, hidden_dim, kg_dim):
+        super().__init__()
+        # Linear layer to compute the gating value from concatenated h_m and z_m.
+        self.gate_linear = nn.Linear(hidden_dim + kg_dim, hidden_dim)
+        # Projection layer to map KG embedding (z_m) to the hidden dimension.
+        self.z_project = nn.Linear(kg_dim, hidden_dim)
+
+    def forward(self, h_m, z_m):
+        # h_m: [batch_size, hidden_dim]
+        # z_m: [batch_size, kg_dim]
+        cat = torch.cat([h_m, z_m], dim=-1)  # [batch_size, hidden_dim + kg_dim]
+        g = torch.sigmoid(self.gate_linear(cat))  # [batch_size, hidden_dim]
+        # Project z_m to hidden_dim
+        z_m_proj = self.z_project(z_m)  # [batch_size, hidden_dim]
+        h_m_tilde = g * h_m + (1 - g) * z_m_proj
+        return h_m_tilde
+
+class SpanPooling(nn.Module):
+    def __init__(self, hidden_size):
+        super(SpanPooling, self).__init__()
+        # This linear layer produces a scalar score for each token
+        self.attention_fc = nn.Linear(hidden_size, 1)
+    
+    def forward(self, token_reps, mask=None):
+        # token_reps: [batch, span_length, hidden_size]
+        scores = self.attention_fc(token_reps)  # [batch, span_length, 1]
+        
+        if mask is not None:
+            # Set scores for padded tokens (mask == False) to a very negative value,
+            # so that their softmax weights become effectively zero.
+            scores = scores.masked_fill(~mask.unsqueeze(-1), float('-inf'))
+        
+        attn_weights = torch.nn.functional.softmax(scores, dim=1)   # [batch, span_length, 1]
+        pooled = torch.sum(token_reps * attn_weights, dim=1)  # [batch, hidden_size]
+        return pooled
+    
+class SimpleMLP(nn.Module):
+    def __init__(self, hidden_dim=32):
+        super().__init__()
+
+        # Simple MLP: 1 -> hidden_dim -> 1
+        self.kg_sim_mlp = nn.Sequential(
+            nn.Linear(1, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 1),
+        )
+
+        for layer in self.kg_sim_mlp:
+            if isinstance(layer, nn.Linear):
+                nn.init.xavier_uniform_(layer.weight)
+                nn.init.zeros_(layer.bias)
+
+    def forward(self, kg_sim_matrix):
+        # given shape [1, n, k, k]
+        mlp_input = kg_sim_matrix.unsqueeze(-1)  # [1, n, k, k, 1]
+        kg_sim_enh = self.kg_sim_mlp(mlp_input).squeeze(-1)  # back to [1, n, k, k]
+        return kg_sim_enh
 
 class FullyConnectedLayer(Module):
     def __init__(self, input_dim, output_dim, hidden_size, dropout_prob):
@@ -142,7 +237,77 @@ class FullyConnectedLayer(Module):
         temp = self.layer_norm(temp)
         temp = self.dense(temp)
         return temp
+# class FullyConnectedLayer(nn.Module):
+#     def __init__(self, input_dim, output_dim, hidden_size, dropout_prob, num_blocks):
+#         """
+#         Args:
+#             input_dim: Dimensionality of input features.
+#             output_dim: Dimensionality of the final output.
+#             hidden_size: Size of the hidden layer(s).
+#             dropout_prob: Dropout probability.
+#             num_blocks: Number of blocks to stack before the final layer.
+#                         Must be at least 1.
+#         """
+#         super(FullyConnectedLayer, self).__init__()
+#         self.num_blocks = num_blocks
+        
+#         # First block: maps input_dim to hidden_size.
+#         blocks = []
+#         blocks.append(nn.Sequential(
+#             nn.Linear(input_dim, hidden_size),
+#             nn.Dropout(dropout_prob),
+#             nn.GELU(),
+#             nn.LayerNorm(hidden_size)
+#         ))
+        
+#         # Add additional blocks that maintain the hidden_size.
+#         for _ in range(num_blocks - 1):
+#             blocks.append(nn.Sequential(
+#                 nn.Linear(hidden_size, hidden_size),
+#                 nn.Dropout(dropout_prob),
+#                 nn.GELU(),
+#                 nn.LayerNorm(hidden_size)
+#             ))
+            
+#         # Store the stacked blocks in a ModuleList (or Sequential)
+#         self.blocks = nn.Sequential(*blocks)
+        
+#         # Final linear layer mapping from hidden_size to output_dim.
+#         self.final_linear = nn.Linear(hidden_size, output_dim)
+        
+#     def forward(self, inputs):
+#         x = self.blocks(inputs)
+#         x = self.final_linear(x)
+#         return x
+    
+import torch.utils.checkpoint as checkpoint
 
+class ResidualFullyConnectedLayer(nn.Module):
+    def __init__(self, input_dim, output_dim, hidden_size, dropout_prob):
+        super(ResidualFullyConnectedLayer, self).__init__()
+        self.dense1 = nn.Linear(input_dim, hidden_size)
+        self.dense = nn.Linear(hidden_size, output_dim)
+        self.activation = nn.GELU()
+        self.dropout = nn.Dropout(dropout_prob)
+        self.layer_norm = nn.LayerNorm(hidden_size)
+
+        # Create a projection if dimensions differ.
+        self.residual_proj = nn.Linear(input_dim, output_dim) if input_dim != output_dim else None
+
+    def forward_fn(self, inputs):
+        residual = inputs
+        x = self.dense1(inputs)
+        x = self.dropout(x)
+        x = self.activation(x)
+        x = self.layer_norm(x)
+        x = self.dense(x)
+        if self.residual_proj is not None:
+            residual = self.residual_proj(residual)
+        return x + residual
+
+    def forward(self, inputs):
+        # Wrap the forward pass with checkpoint to reduce memory usage.
+        return checkpoint.checkpoint(self.forward_fn, inputs)
 
 class RepresentationLayer(torch.nn.Module):
     def __init__(self, type, input_dim, output_dim, hidden_dim, **kwargs) -> None:
@@ -160,13 +325,19 @@ class RepresentationLayer(torch.nn.Module):
         elif type == "LSTM-bidirectional":
             self.layer = torch.nn.LSTM(input_size=input_dim, hidden_size=output_dim / 2, bidirectional=True)
         elif type == "Conv1d":
-            self.layer = torch.nn.Conv1d(input_size=input_dim, hidden_size=output_dim, kernel_size=7, stride=1, padding=3)
+            self.layer = torch.nn.Conv1d(in_channels=input_dim, out_channels=output_dim, kernel_size=7, stride=1, padding=3)
             self.dropout = Dropout(0.2)
+        elif type == "GRU":
+            self.layer = torch.nn.GRU(input_size=input_dim, hidden_size=output_dim, bidirectional=False, batch_first=True)
+        elif type == "ResidualFC":
+            self.layer = ResidualFullyConnectedLayer(input_dim, output_dim, hidden_dim, dropout_prob=0.2)     
 
     def forward(self, inputs):
         if self.lt == "Linear":
             return self.layer(inputs)
         elif self.lt == "FC":
+            return self.layer(inputs)
+        elif self.lt == "ResidualFC":
             return self.layer(inputs)
         elif self.lt == "LSTM-left":
             return self.layer(inputs)[0][: self.hidden_dim]
@@ -174,8 +345,10 @@ class RepresentationLayer(torch.nn.Module):
             return self.layer(inputs)[0][self.hidden_dim :]
         elif self.lt == "LSTM-bidirectional":
             return self.layer(inputs)[0]
-        elif self.lt == "Conv1d":
-            return self.layer(self.dropout(inputs))
+        elif self.lt == "GRU":
+            outputs, _ = self.layer(inputs)
+            return outputs
+
 
 
 def download_load_spacy():

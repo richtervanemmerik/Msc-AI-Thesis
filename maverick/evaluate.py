@@ -164,7 +164,7 @@ def model_predictions_with_dataloader(model, test_dataloader, device):
     return predictions
 
 
-@hydra.main(config_path="../conf", config_name="root")
+@hydra.main(config_path="../conf", config_name="root", version_base="1.1")
 def main(conf: omegaconf.DictConfig):
     evaluate(conf)
 

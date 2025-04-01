@@ -3,6 +3,48 @@ from collections import Counter
 from scipy.optimize import linear_sum_assignment
 
 
+# Singleton evaluation performed as scores on set of singleton mentions.
+class OfficialSingletonEvaluator:
+    def __init__(self):
+        self.tp, self.fp, self.fn = 0, 0, 0
+
+    def update(self, predicted_singletons, gold_singletons):
+        # Flatten if the lists are nested
+        if isinstance(predicted_singletons, list) and predicted_singletons and isinstance(predicted_singletons[0], list):
+            predicted_singletons = [x for sublist in predicted_singletons for x in sublist]
+        if isinstance(gold_singletons, list) and gold_singletons and isinstance(gold_singletons[0], list):
+            gold_singletons = [x for sublist in gold_singletons for x in sublist]
+
+        # Check if both lists have the same length.
+        if len(predicted_singletons) != len(gold_singletons):
+            raise ValueError("The length of predicted_singletons and gold_singletons must match.")
+
+        
+        for pred, gold in zip(predicted_singletons, gold_singletons):
+            if pred == 1 and gold == 1:
+                self.tp += 1
+            elif pred == 1 and gold == 0:
+                self.fp += 1
+            elif pred == 0 and gold == 1:
+                self.fn += 1
+            # Cases where pred == 0 and gold == 0 are true negatives and typically don't affect precision/recall/F1.
+
+    def get_precision(self):
+        return self.tp / (self.tp + self.fp) if (self.tp + self.fp) > 0 else 0.0
+
+    def get_recall(self):
+        return self.tp / (self.tp + self.fn) if (self.tp + self.fn) > 0 else 0.0
+
+    def get_f1(self):
+        precision = self.get_precision()
+        recall = self.get_recall()
+        return 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+
+    def get_prf(self):
+        return self.get_precision(), self.get_recall(), self.get_f1()
+
+
+
 # Mention evaluation performed as scores on set of mentions.
 class OfficialMentionEvaluator:
     def __init__(self):

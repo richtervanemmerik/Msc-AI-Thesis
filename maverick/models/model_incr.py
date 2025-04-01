@@ -62,6 +62,20 @@ class Maverick_incr(torch.nn.Module):
         # span hidden dimension
         self.token_hidden_size = self.encoder_config.hidden_size
         self.span_pooling = SpanPooling(self.token_hidden_size)
+        if kwargs["huggingface_model_name"] == "answerdotai/ModernBERT-base":
+            self.embedding_shape = (20982733, 100)
+            entity2id_file = kwargs["entity2id_path"]
+            embeddings_file = kwargs["embeddings_path"]
+            # Load the mapping dictionary from string IDs to integer indices
+            self.entity_to_index = self.load_entity_ids(entity2id_file)
+            # Load the embeddings as a memmap for efficient, disk-backed access
+            self.embeddings = self.load_embeddings(embeddings_file, self.embedding_shape)
+            self.kg_embedding_dim = 100
+            self.kg_fusion_layer = nn.Linear(self.token_hidden_size * 2 + self.kg_embedding_dim, self.token_hidden_size * 2)
+            self.entity_linker = SpacyEntityLinkerWrapper()
+            self.kg_projector = nn.Linear(self.kg_embedding_dim, self.token_hidden_size * 2)
+            self.gating_fusion = GatingFusion(hidden_dim=self.token_hidden_size * 2, kg_dim=self.kg_embedding_dim)
+        
 
         # if span representation method is to concatenate start and end, a mention hidden size will be 2*token_hidden_size
         if self.encoder_hf_model_name == "answerdotai/ModernBERT-base":
@@ -120,6 +134,100 @@ class Maverick_incr(torch.nn.Module):
             output_dim=1,
             hidden_dim=self.token_hidden_size,
         )
+
+    def load_entity_ids(self, mapping_file):
+        """Loads entity-to-index mapping from a file."""
+        entity_to_index = {}
+        with open(mapping_file, 'r') as f:
+            next(f)  # Skip header if necessary
+            for line in f:
+                entity, index = line.strip().split('\t')
+                entity_to_index[entity] = int(index)
+        return entity_to_index
+
+    def load_embeddings(self, embeddings_file, embedding_shape):
+        """Loads embeddings as a memory-mapped NumPy array."""
+        return np.memmap(embeddings_file, dtype=np.float32, mode='r', shape=embedding_shape)
+
+    def get_embedding(self, entity_str, default_embedding=None):
+        """Retrieves the embedding for a given entity string.
+        
+        Returns a torch tensor on the same device as needed.
+        """
+        idx = self.entity_to_index.get(entity_str)
+        if idx is None:
+            # Return a default embedding (e.g., zeros) if the entity isn't found.
+            return default_embedding if default_embedding is not None else torch.zeros(self.kg_embedding_dim)
+        # Get the embedding row from the memmap and convert it to a torch tensor.
+        emb_np = self.embeddings[idx]
+        emb_tensor = torch.from_numpy(emb_np)
+        return emb_tensor
+    
+    def augment_mention_reps_with_kg(self, mention_idxs, mention_hidden_states, tokens, bidx=0, combining_method="gating"):
+        fused_reps = []
+        self.epoch_kg_found = 0
+        self.epoch_mentions = 0
+        mention_hidden_states = mention_hidden_states.squeeze(0)
+        
+        # For each predicted mention, convert span indices to a string.
+        for i, span in enumerate(mention_idxs.tolist()):
+            start_idx, end_idx = span[0], span[1]
+            # Here tokens[bidx] is the list of tokens for the document.
+            mention_tokens = tokens[bidx][start_idx:end_idx+1]
+            mention_text = " ".join(mention_tokens)
+            # Entity linking: get entity id (or None if no match)
+            entity_id = self.entity_linker.get_entity(mention_text)
+            self.epoch_mentions += 1
+            
+            if entity_id is not None:
+                kg_emb = self.get_embedding(entity_id).to(mention_hidden_states.device)
+            else:
+                kg_emb = torch.zeros(self.kg_embedding_dim, device=mention_hidden_states.device)
+
+            # Count how many KG embeddings were successfully found.
+            if not torch.equal(kg_emb, torch.zeros(self.kg_embedding_dim, device=mention_hidden_states.device)):    
+                self.epoch_kg_found += 1
+
+            # Choose the combining strategy.
+            if combining_method == "concat":
+                # Concatenate the mention representation with the KG embedding.
+                combined = torch.cat([mention_hidden_states[i], kg_emb], dim=-1)
+                fused_reps.append(combined)
+            elif combining_method == "add":
+                # Add the KG embedding to the mention representation.
+                projected_kg_emb = self.kg_projector(kg_emb)
+                combined = mention_hidden_states[i] + projected_kg_emb
+                fused_reps.append(combined)
+            elif combining_method == "gating":
+                current_mention_state = mention_hidden_states[i]
+                # GatingFusion expects batch dimension, so unsqueeze inputs
+                h_m = current_mention_state.unsqueeze(0) # [1, hidden_dim]
+                z_m = kg_emb.unsqueeze(0)                # [1, kg_dim]
+                # GatingFusion handles projection internally and returns [1, hidden_dim]
+                combined = self.gating_fusion(h_m, z_m).squeeze(0) # Remove batch dim -> [hidden_dim]
+                fused_reps.append(combined)    
+            else:
+                # Project the fused vector back to the expected dimension.
+                combined = torch.cat([mention_hidden_states[i], kg_emb], dim=-1)
+                fused = self.kg_fusion_layer(combined)
+                fused_reps.append(fused)
+
+
+        
+        # Print how many were found at the end of an epoch.
+        if (self.step + 1) % 79 == 0:
+            print(f"Epoch complete: {self.epoch_kg_found} KG embeddings found out of {self.epoch_mentions} mentions")
+            self.epoch_kg_found = 0  
+            self.epoch_mentions = 0  
+        
+        if len(fused_reps) > 0:
+            fused_reps = torch.stack(fused_reps, dim=0)
+        else:
+            # In case there are no mentions, return an empty tensor with proper shape.
+            fused_reps = torch.empty(0, self.token_hidden_size * 2, device=mention_hidden_states.device)
+        
+        return fused_reps
+
 
     # takes last_hidden_states, eos_mask, ground truth and stage
     def squad_mention_extraction(self, lhs, eos_mask, gold_mentions, gold_starts, stage):
@@ -484,8 +592,11 @@ class Maverick_incr(torch.nn.Module):
 
         mentions_hidden_states = torch.cat((mentions_start_hidden_states, mentions_end_hidden_states), dim=2)
 
+        #if tokens is not None:
+            #mentions_hidden_states_kg = self.augment_mention_reps_with_kg(mention_idxs, mentions_hidden_states, tokens, bidx=0)
+        #mentions_hidden_states_kg = mentions_hidden_states_kg.unsqueeze(0)
         # Build mention representations using the separate function.
-        # mentions_hidden_states = self.build_mention_representations(lhs, mention_idxs)
+        #mentions_hidden_states = self.build_mention_representations(lhs, mention_idxs)
 
         mentions_hidden_states = self.incremental_span_encoder(mentions_hidden_states)
 

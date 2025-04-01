@@ -20,12 +20,22 @@ from rich.console import Console
 from maverick.data.pl_data_modules import BasePLDataModule
 from maverick.models.pl_modules import BasePLModule
 
+import wandb
+
 torch.set_printoptions(edgeitems=100)
 
 
 def train(conf: omegaconf.DictConfig) -> None:
     # fancy logger
     console = Console()
+
+    run = wandb.init()
+    sweep_params = OmegaConf.create(dict(wandb.config))
+    conf = OmegaConf.merge(conf, sweep_params)
+
+    console.log("Running with WandB Sweep config:")
+    # Use wandb.config for logging sweep HPs conveniently
+    console.log(wandb.config)
     # reproducibility
     pl.seed_everything(conf.train.seed)
     set_determinism_the_old_way(conf.train.pl_trainer.deterministic)
@@ -55,7 +65,7 @@ def train(conf: omegaconf.DictConfig) -> None:
     console.log(f"Instantiating the Model")
 
     pl_module: BasePLModule = hydra.utils.instantiate(conf.model.module, _recursive_=False)
-
+    print(pl_module)
     # pl_module = BasePLModule.load_from_checkpoint(conf.evaluation.checkpoint, _recursive_=False, map_location="cuda:0")
     experiment_logger: Optional[WandbLogger] = None
     experiment_path: Optional[Path] = None
@@ -92,8 +102,24 @@ def train(conf: omegaconf.DictConfig) -> None:
     # module fit
     trainer.fit(pl_module, datamodule=pl_data_module)
 
-    # module test
-    trainer.test(pl_module, datamodule=pl_data_module)
+    # # module test
+    # trainer.test(pl_module, datamodule=pl_data_module)
+    # Load best model based on the metric monitored by ModelCheckpoint
+    best_model_path = model_checkpoint_callback.best_model_path if model_checkpoint_callback else None
+    if best_model_path and os.path.exists(best_model_path):
+         console.log(f"Loading best model for testing: {best_model_path}")
+         test_results = trainer.test(pl_module, datamodule=pl_data_module, ckpt_path=best_model_path)
+         console.log("Test results:", test_results)
+         # Log test results to the same wandb run
+         if test_results and isinstance(test_results, list) and len(test_results) > 0:
+              # Prefix test metrics to distinguish them, e.g., "test/f1"
+              test_metrics = {"test/" + k: v for k, v in test_results[0].items()}
+              run.log(test_metrics)
+    else:
+         console.log("Skipping testing or best model checkpoint not found.")
+
+    # Finish the wandb run
+    run.finish()
 
 
 def set_determinism_the_old_way(deterministic: bool):
@@ -105,7 +131,7 @@ def set_determinism_the_old_way(deterministic: bool):
         os.environ["HOROVOD_FUSION_THRESHOLD"] = str(0)
 
 
-@hydra.main(config_path="../conf", config_name="root")
+@hydra.main(config_path="../conf", config_name="root", version_base="1.1")
 def main(conf: omegaconf.DictConfig):
     print(OmegaConf.to_yaml(conf))
     train(conf)

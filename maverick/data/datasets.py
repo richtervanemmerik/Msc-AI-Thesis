@@ -1,6 +1,7 @@
 import numpy as np
 import hydra.utils
 import torch
+import random
 
 from typing import Tuple
 from typing import Dict, Union
@@ -39,7 +40,12 @@ class OntonotesDataset(Dataset):
             self.set = self.set.remove_columns(column_names=["speakers"])
             if self.stage != "test":
                 self.set.save_to_disk(hydra.utils.get_original_cwd() + "/" + processed_dataset_path + "/")
-
+                
+        dataset_fraction = 1.0
+        if dataset_fraction < 1.0:
+            num_examples = int(len(self.set) * dataset_fraction)
+            random_indices = random.sample(range(len(self.set)), num_examples)
+            self.set = self.set.select(random_indices)
     def prepare_data(self, set):
         return set.filter(lambda x: len(self.tokenizer(x["tokens"])["input_ids"]) <= self.max_doc_len)
 
@@ -188,13 +194,14 @@ class OntonotesDataset(Dataset):
             padded_clusters = [
                 pad_clusters(cluster, max_num_clusters, max_max_cluster_size) for cluster in batch["gold_clusters"]
             ]
-
+        output["raw_gold_clusters"] = batch["gold_clusters"][0]
         output["gold_clusters"] = torch.tensor(padded_clusters)
         output["tokens"] = batch["tokens"]
         output["doc_key"] = batch["doc_key"]
         output["subtoken_map"] = batch["subtoken_map"]
         output["new_token_map"] = batch["new_token_map"]
         output["eos_indices"] = torch.tensor(batch["EOS_indices"])
+    
         output["singletons"] = "litbank" in self.path or "preco" in self.path
         return output
 
