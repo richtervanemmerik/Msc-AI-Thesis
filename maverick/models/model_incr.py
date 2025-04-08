@@ -164,18 +164,21 @@ class Maverick_incr(torch.nn.Module):
         emb_tensor = torch.from_numpy(emb_np)
         return emb_tensor
     
-    def augment_mention_reps_with_kg(self, mention_idxs, mention_hidden_states, tokens, bidx=0, combining_method="fusion", use_random_kg_id=True):
+    def augment_mention_reps_with_kg(self, mention_idxs, mention_hidden_states, tokens, bidx=0, combining_method="concat", use_random_kg_id=False):
         fused_reps = []
         self.epoch_kg_found = 0
         self.epoch_mentions = 0
         mention_hidden_states = mention_hidden_states.squeeze(0)
+        kg_enhanced_mention_indices = []
+        kg_enhanced_mentions = []
+        original_mention_tuples = [tuple(m) for m in mention_idxs.tolist()]
 
         can_use_random = use_random_kg_id and bool(self._all_entity_ids)
         if use_random_kg_id and not bool(self._all_entity_ids):
              print("Warning: use_random_kg_id is True, but no entity IDs are available for random sampling.")
-        
+
         # For each predicted mention, convert span indices to a string.
-        for i, span in enumerate(mention_idxs.tolist()):
+        for i, span in enumerate(original_mention_tuples):
             start_idx, end_idx = span[0], span[1]
             # Here tokens[bidx] is the list of tokens for the document.
             mention_tokens = tokens[bidx][start_idx:end_idx+1]
@@ -183,19 +186,24 @@ class Maverick_incr(torch.nn.Module):
             # Entity linking: get entity id (or None if no match)
             entity_id = self.entity_linker.get_entity(mention_text)
             self.epoch_mentions += 1
-
+            
+            kg_emb = torch.zeros(self.kg_embedding_dim, device=mention_hidden_states.device) # Default zero
             if entity_id is not None:
                 if can_use_random:
-                    retrieved_entity_id = random.choice(self._all_entity_ids)
-                else:
-                    retrieved_entity_id = entity_id    
-                kg_emb = self.get_embedding(retrieved_entity_id).to(mention_hidden_states.device)
-            else:
-                kg_emb = torch.zeros(self.kg_embedding_dim, device=mention_hidden_states.device)
+                    # Use the random entity ID
+                    entity_id = random.choice(self._all_entity_ids)
+                retrieved_emb = self.get_embedding(entity_id).to(mention_hidden_states.device)
+                # Check if retrieval was successful (might still be zeros if entity not in KG map)
+                if not torch.equal(retrieved_emb, torch.zeros(self.kg_embedding_dim, device=mention_hidden_states.device)):
+                    kg_emb = retrieved_emb
+                    # Track this mention
+                    kg_enhanced_mention_indices.append(i)
+                    kg_enhanced_mentions.append(span)
+                    print(f"Found KG embedding for span {mention_text} with ID {entity_id}")
 
             # Count how many KG embeddings were successfully found.
             if not torch.equal(kg_emb, torch.zeros(self.kg_embedding_dim, device=mention_hidden_states.device)):    
-                self.epoch_kg_found += 1
+                self.epoch_kg_found += 1                
 
             # Choose the combining strategy.
             if combining_method == "concat":
@@ -215,11 +223,18 @@ class Maverick_incr(torch.nn.Module):
                 # GatingFusion handles projection internally and returns [1, hidden_dim]
                 combined = self.gating_fusion(h_m, z_m).squeeze(0) # Remove batch dim -> [hidden_dim]
                 fused_reps.append(combined)    
-            else:
+            elif combining_method == "fusion":
                 # Project the fused vector back to the expected dimension.
                 combined = torch.cat([mention_hidden_states[i], kg_emb], dim=-1)
                 fused = self.kg_fusion_layer(combined)
                 fused_reps.append(fused)
+            elif combining_method == "none":
+                # <---- NO KG EMBEDDING AT ALL. Just keep the original mention rep. ---->
+                fused_reps.append(mention_hidden_states[i])
+            else:
+                # Fallback or raise an error if unrecognized method
+                raise ValueError(f"Unrecognized combining_method: {combining_method}")
+
 
 
         
@@ -233,9 +248,9 @@ class Maverick_incr(torch.nn.Module):
             fused_reps = torch.stack(fused_reps, dim=0)
         else:
             # In case there are no mentions, return an empty tensor with proper shape.
-            fused_reps = torch.empty(0, self.token_hidden_size * 2, device=mention_hidden_states.device)
+            fused_reps = torch.empty(0, self.token_hidden_size * 2 + 100, device=mention_hidden_states.device)
         
-        return fused_reps
+        return fused_reps, kg_enhanced_mentions
 
 
     # takes last_hidden_states, eos_mask, ground truth and stage
@@ -602,7 +617,7 @@ class Maverick_incr(torch.nn.Module):
         mentions_hidden_states = torch.cat((mentions_start_hidden_states, mentions_end_hidden_states), dim=2)
 
         if tokens is not None:
-            mentions_hidden_states_kg = self.augment_mention_reps_with_kg(mention_idxs, mentions_hidden_states, tokens, bidx=0)
+            mentions_hidden_states_kg, kg_enhanced_mentions = self.augment_mention_reps_with_kg(mention_idxs, mentions_hidden_states, tokens, bidx=0)
         mentions_hidden_states_kg = mentions_hidden_states_kg.unsqueeze(0)
         # Build mention representations using the separate function.
         #mentions_hidden_states = self.build_mention_representations(lhs, mention_idxs)
@@ -623,6 +638,7 @@ class Maverick_incr(torch.nn.Module):
             singleton_preds = self.get_singletons_out_of_coreferences(coreferences, predicted_mentions)   
             preds["singletons"] = singleton_preds
             preds["gold_singletons"] = gold_singletons_for_pred
+            preds["kg_enhanced_mentions"] = kg_enhanced_mentions
 
         loss_dict["full_loss"] = loss
         output = {"pred_dict": preds, "loss_dict": loss_dict, "loss": loss}

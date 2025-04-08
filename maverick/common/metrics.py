@@ -109,6 +109,37 @@ class OfficialCoNLL2012CorefEvaluator(object):
     def get_prf(self, metric):
         return self.get_precision(metric), self.get_recall(metric), self.get_f1(metric)
 
+class KGSubsetCoNLL2012CorefEvaluator(object):
+    def __init__(self):
+        self.evaluators = [OfficialEvaluator(m) for m in (muc, b_cubed, ceafe)]
+        self.metrics = {"muc": 0, "b_cubed": 1, "ceafe": 2}
+
+    # pred & golds : [[((wstart, wend),()), (())...]],  mention_to_pred and mention_to_gold: [{(wstart,wend):((wstart, wend)...)}]
+    def update(self, pred, gold, mention_to_predicted, mention_to_gold):
+        for e in self.evaluators:
+            e.update(pred, gold, mention_to_predicted, mention_to_gold)
+
+    def get_f1(self, metric):
+        if metric == "conll2012":
+            return sum(e.get_f1() for e in self.evaluators) / len(self.evaluators)
+        else:
+            return self.evaluators[self.metrics[metric]].get_f1()
+
+    def get_recall(self, metric):
+        if metric == "conll2012":
+            return sum(e.get_recall() for e in self.evaluators) / len(self.evaluators)
+        else:
+            return self.evaluators[self.metrics[metric]].get_recall()
+
+    def get_precision(self, metric):
+        if metric == "conll2012":
+            return sum(e.get_precision() for e in self.evaluators) / len(self.evaluators)
+        else:
+            return self.evaluators[self.metrics[metric]].get_precision()
+
+    def get_prf(self, metric):
+        return self.get_precision(metric), self.get_recall(metric), self.get_f1(metric)
+
 
 class OfficialEvaluator(object):
     def __init__(self, metric, beta=1):

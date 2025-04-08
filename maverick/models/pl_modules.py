@@ -14,6 +14,46 @@ from maverick.models.model_incr import *
 from maverick.models.model_mes import Maverick_mes
 from maverick.models.model_s2e import *
 
+def build_mention_maps(clusters):
+    mention_to_cluster = {}
+    for cluster in clusters:
+        cluster_tuple = tuple(sorted(cluster)) # Use a canonical representation
+        for mention in cluster:
+            mention_to_cluster[mention] = cluster_tuple
+    return mention_to_cluster
+
+def filter_clusters_by_mentions(
+    clusters, mentions_to_keep_set):
+    """
+    Filters clusters to only include mentions present in mentions_to_keep_set.
+    Removes empty clusters. Resulting clusters are tuples.
+    """
+    filtered_clusters = []
+    for cluster in clusters:
+        # Filter mentions within the cluster
+        new_cluster_mentions = [
+            mention for mention in cluster if mention in mentions_to_keep_set
+        ]
+        # Only add if the filtered cluster is not empty
+        if new_cluster_mentions:
+            # Convert back to tuple for consistency
+            filtered_clusters.append(tuple(sorted(new_cluster_mentions)))
+    return filtered_clusters
+
+def filter_mention_map(mention_map, mentions_to_keep_set):
+    """Filters a mention-to-cluster map based on a set of mentions to keep."""
+    filtered_map = {}
+    for mention, cluster in mention_map.items():
+        if mention in mentions_to_keep_set:
+            # Also filter the cluster tuple itself to only contain kept mentions
+            filtered_cluster = tuple(sorted([
+                m for m in cluster if m in mentions_to_keep_set
+            ]))
+            # Ensure the filtered cluster is not empty before adding
+            if filtered_cluster:
+                filtered_map[mention] = filtered_cluster
+    return filtered_map
+
 
 class BasePLModule(pl.LightningModule):
     def __init__(self, *args, **kwargs) -> None:
@@ -41,6 +81,7 @@ class BasePLModule(pl.LightningModule):
         cluster_mention_evaluator = OfficialMentionEvaluator()
         coref_evaluator = OfficialCoNLL2012CorefEvaluator()
         singleton_evaluator = OfficialSingletonEvaluator()
+        kg_subset_conll_evaluator = KGSubsetCoNLL2012CorefEvaluator()
         result = {}
 
         for pred, gold in zip(predictions, golds):
@@ -85,6 +126,24 @@ class BasePLModule(pl.LightningModule):
                     [item for sublist in gold_clusters for item in sublist],
                     [item for sublist in pred_clusters for item in sublist],
                 )
+            # --- KG Subset Coreference Evaluation ---
+            kg_enhanced_mentions = pred["kg_enhanced_mentions"]
+            mention_to_predicted = build_mention_maps(pred_clusters)
+            mention_to_gold = build_mention_maps(gold_clusters)
+            if kg_enhanced_mentions and (pred_clusters or gold_clusters):
+                filtered_pred_clusters = filter_clusters_by_mentions(pred_clusters, kg_enhanced_mentions)
+                filtered_gold_clusters = filter_clusters_by_mentions(gold_clusters, kg_enhanced_mentions)
+
+                filtered_mention_to_predicted = filter_mention_map(mention_to_predicted, kg_enhanced_mentions)
+                filtered_mention_to_gold = filter_mention_map(mention_to_gold, kg_enhanced_mentions)
+
+                kg_subset_conll_evaluator.update(
+                    filtered_pred_clusters,
+                    filtered_gold_clusters,
+                    filtered_mention_to_predicted,
+                    filtered_mention_to_gold
+                )
+
         p, r, f1 = start_evaluator.get_prf()
         result.update(
             {
@@ -119,7 +178,14 @@ class BasePLModule(pl.LightningModule):
         "singleton_precision": p,
         "singleton_recall": r,
         })
-    
+        
+
+        for metric in ["muc", "b_cubed", "ceafe", "conll2012"]:
+            p, r, f1 = kg_subset_conll_evaluator.get_prf(metric)
+            result.update({
+                f"kg_subset_{metric}_f1_score": f1, 
+                f"kg_subset_{metric}_precision": p, 
+                f"kg_subset_{metric}_recall": r})
         return result
 
     def training_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
