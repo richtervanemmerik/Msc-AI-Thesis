@@ -12,10 +12,10 @@ pl_trainer:
   accelerator: gpu
   devices: 1
   num_nodes: 1
-  accumulate_grad_batches: 8 ## was 4
+  accumulate_grad_batches: 2 ## was 4
   gradient_clip_val: 1.0
   val_check_interval: 0.5   # you can specify an int "n" here => validation every "n" steps
-  max_epochs: 300
+  max_epochs: 50
   deterministic: True
   fast_dev_run: False
   precision: 16
@@ -28,7 +28,7 @@ early_stopping_callback:
   _target_: pytorch_lightning.callbacks.EarlyStopping
   monitor: val/conll2012_f1_score
   mode: max
-  patience: 30 ## was 120
+  patience: 120 ## was 120
 
 # model_checkpoint_callback
 # "model_checkpoint_callback: null" will disable model checkpointing
