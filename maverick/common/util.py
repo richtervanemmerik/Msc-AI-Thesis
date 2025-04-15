@@ -12,7 +12,7 @@ import torch.nn.functional as F
 from maverick.common.constants import *
 
 class SpacyEntityLinkerWrapper:
-    def __init__(self, spacy_model="en_core_web_lg"):
+    def __init__(self, spacy_model="en_core_web_sm"):
         # Load the spaCy language model.
         self.nlp = spacy.load(spacy_model)
         # Add the entity linker pipeline component if not already present.
@@ -194,27 +194,6 @@ class SpanPooling(nn.Module):
         pooled = torch.sum(token_reps * attn_weights, dim=1)  # [batch, hidden_size]
         return pooled
     
-class SimpleMLP(nn.Module):
-    def __init__(self, hidden_dim=32):
-        super().__init__()
-
-        # Simple MLP: 1 -> hidden_dim -> 1
-        self.kg_sim_mlp = nn.Sequential(
-            nn.Linear(1, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, 1),
-        )
-
-        for layer in self.kg_sim_mlp:
-            if isinstance(layer, nn.Linear):
-                nn.init.xavier_uniform_(layer.weight)
-                nn.init.zeros_(layer.bias)
-
-    def forward(self, kg_sim_matrix):
-        # given shape [1, n, k, k]
-        mlp_input = kg_sim_matrix.unsqueeze(-1)  # [1, n, k, k, 1]
-        kg_sim_enh = self.kg_sim_mlp(mlp_input).squeeze(-1)  # back to [1, n, k, k]
-        return kg_sim_enh
 
 class FullyConnectedLayer(Module):
     def __init__(self, input_dim, output_dim, hidden_size, dropout_prob):
@@ -237,48 +216,7 @@ class FullyConnectedLayer(Module):
         temp = self.layer_norm(temp)
         temp = self.dense(temp)
         return temp
-# class FullyConnectedLayer(nn.Module):
-#     def __init__(self, input_dim, output_dim, hidden_size, dropout_prob, num_blocks):
-#         """
-#         Args:
-#             input_dim: Dimensionality of input features.
-#             output_dim: Dimensionality of the final output.
-#             hidden_size: Size of the hidden layer(s).
-#             dropout_prob: Dropout probability.
-#             num_blocks: Number of blocks to stack before the final layer.
-#                         Must be at least 1.
-#         """
-#         super(FullyConnectedLayer, self).__init__()
-#         self.num_blocks = num_blocks
-        
-#         # First block: maps input_dim to hidden_size.
-#         blocks = []
-#         blocks.append(nn.Sequential(
-#             nn.Linear(input_dim, hidden_size),
-#             nn.Dropout(dropout_prob),
-#             nn.GELU(),
-#             nn.LayerNorm(hidden_size)
-#         ))
-        
-#         # Add additional blocks that maintain the hidden_size.
-#         for _ in range(num_blocks - 1):
-#             blocks.append(nn.Sequential(
-#                 nn.Linear(hidden_size, hidden_size),
-#                 nn.Dropout(dropout_prob),
-#                 nn.GELU(),
-#                 nn.LayerNorm(hidden_size)
-#             ))
-            
-#         # Store the stacked blocks in a ModuleList (or Sequential)
-#         self.blocks = nn.Sequential(*blocks)
-        
-#         # Final linear layer mapping from hidden_size to output_dim.
-#         self.final_linear = nn.Linear(hidden_size, output_dim)
-        
-#     def forward(self, inputs):
-#         x = self.blocks(inputs)
-#         x = self.final_linear(x)
-#         return x
+
     
 import torch.utils.checkpoint as checkpoint
 

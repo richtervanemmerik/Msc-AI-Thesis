@@ -73,8 +73,9 @@ class Maverick_incr(torch.nn.Module):
         self.embeddings = self.load_embeddings(embeddings_file, self.embedding_shape)
         self.kg_embedding_dim = 100
         self.kg_fusion_layer = nn.Linear(self.token_hidden_size * 2 + self.kg_embedding_dim, self.token_hidden_size * 2)
+        self.kg_projector = nn.Linear(self.kg_embedding_dim, self.kg_embedding_dim)
         self.entity_linker = SpacyEntityLinkerWrapper()
-        self.kg_projector = nn.Linear(self.kg_embedding_dim, self.token_hidden_size * 2)
+        # self.kg_projector = nn.Linear(self.kg_embedding_dim, self.token_hidden_size * 2)
         self.gating_fusion = GatingFusion(hidden_dim=self.token_hidden_size * 2, kg_dim=self.kg_embedding_dim)
         
 
@@ -164,7 +165,7 @@ class Maverick_incr(torch.nn.Module):
         emb_tensor = torch.from_numpy(emb_np)
         return emb_tensor
     
-    def augment_mention_reps_with_kg(self, mention_idxs, mention_hidden_states, tokens, bidx=0, combining_method="concat", use_random_kg_id=False):
+    def augment_mention_reps_with_kg(self, mention_idxs, mention_hidden_states, tokens, bidx=0, combining_method="fusion", use_random_kg_id=False):
         fused_reps = []
         self.epoch_kg_found = 0
         self.epoch_mentions = 0
@@ -199,7 +200,7 @@ class Maverick_incr(torch.nn.Module):
                     # Track this mention
                     kg_enhanced_mention_indices.append(i)
                     kg_enhanced_mentions.append(span)
-                    print(f"Found KG embedding for span {mention_text} with ID {entity_id}")
+                    #print(f"Found KG embedding for span {mention_text} with ID {entity_id}")
 
             # Count how many KG embeddings were successfully found.
             if not torch.equal(kg_emb, torch.zeros(self.kg_embedding_dim, device=mention_hidden_states.device)):    
@@ -225,6 +226,7 @@ class Maverick_incr(torch.nn.Module):
                 fused_reps.append(combined)    
             elif combining_method == "fusion":
                 # Project the fused vector back to the expected dimension.
+                #kg_emb = self.kg_projector(kg_emb)
                 combined = torch.cat([mention_hidden_states[i], kg_emb], dim=-1)
                 fused = self.kg_fusion_layer(combined)
                 fused_reps.append(fused)
@@ -248,7 +250,7 @@ class Maverick_incr(torch.nn.Module):
             fused_reps = torch.stack(fused_reps, dim=0)
         else:
             # In case there are no mentions, return an empty tensor with proper shape.
-            fused_reps = torch.empty(0, self.token_hidden_size * 2 + 100, device=mention_hidden_states.device)
+            fused_reps = torch.empty(0, self.token_hidden_size * 2, device=mention_hidden_states.device)
         
         return fused_reps, kg_enhanced_mentions
 
