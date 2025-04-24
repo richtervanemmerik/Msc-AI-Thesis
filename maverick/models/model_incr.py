@@ -44,6 +44,8 @@ class Maverick_incr(torch.nn.Module):
     def __init__(self, *args, **kwargs):
         super().__init__()
         # document transformer encoder
+        self.kg_fusion_strategy = kwargs["kg_fusion_strategy"] # "baseline", "concat_linear", "additive", "gated"
+        self.kg_unknown_handling = kwargs["kg_unknown_handling"] # "zero_vector", "unk_embed"
         self.encoder_hf_model_name = kwargs["huggingface_model_name"]
         self.encoder = AutoModel.from_pretrained(self.encoder_hf_model_name)
         self.encoder_config = AutoConfig.from_pretrained(self.encoder_hf_model_name)
@@ -69,12 +71,20 @@ class Maverick_incr(torch.nn.Module):
         self.entity_to_index = self.load_entity_ids(entity2id_file)
         self._all_entity_ids = list(self.entity_to_index.keys())
 
+        # ---- per‑epoch linker stats ----
+        self._epoch_linked   = 0   # mentions with a KG ID
+        self._epoch_unlinked = 0   # mentions with no ID
+        self._batches_per_epoch = 79   # (= 158 / accumulate_grad_batches)
+
         # Load the embeddings as a memmap for efficient, disk-backed access
         self.embeddings = self.load_embeddings(embeddings_file, self.embedding_shape)
         self.kg_embedding_dim = 100
         self.kg_fusion_layer = nn.Linear(self.token_hidden_size * 2 + self.kg_embedding_dim, self.token_hidden_size * 2)
         self.kg_projector = nn.Linear(self.kg_embedding_dim, self.kg_embedding_dim)
         self.entity_linker = SpacyEntityLinkerWrapper()
+        self.kg_table = KGEmbeddingTable(embeddings_file,
+                                 num_entities=self.embedding_shape[0],
+                                 dim=self.kg_embedding_dim)
         # self.kg_projector = nn.Linear(self.kg_embedding_dim, self.token_hidden_size * 2)
         self.gating_fusion = GatingFusion(hidden_dim=self.token_hidden_size * 2, kg_dim=self.kg_embedding_dim)
         
@@ -151,6 +161,10 @@ class Maverick_incr(torch.nn.Module):
         """Loads embeddings as a memory-mapped NumPy array."""
         return np.memmap(embeddings_file, dtype=np.float32, mode='r', shape=embedding_shape)
 
+    def lookup_entity(self, entity_id: str) -> torch.Tensor:
+        idx = self.entity_to_index.get(entity_id, -1)   # -1 ⇒ UNK
+        return self.kg_table(torch.tensor(idx, device=self.encoder.device))
+
     def get_embedding(self, entity_str, default_embedding=None):
         """Retrieves the embedding for a given entity string.
         
@@ -165,93 +179,74 @@ class Maverick_incr(torch.nn.Module):
         emb_tensor = torch.from_numpy(emb_np)
         return emb_tensor
     
-    def augment_mention_reps_with_kg(self, mention_idxs, mention_hidden_states, tokens, bidx=0, combining_method="fusion", use_random_kg_id=False):
+    def augment_mention_reps_with_kg(
+            self,
+            mention_idxs,
+            mention_hidden_states,
+            tokens,
+            bidx: int = 0,
+            combining_method: str = "fusion",
+            use_random_kg_id: bool = False):
+
         fused_reps = []
-        self.epoch_kg_found = 0
-        self.epoch_mentions = 0
-        mention_hidden_states = mention_hidden_states.squeeze(0)
-        kg_enhanced_mention_indices = []
-        kg_enhanced_mentions = []
-        original_mention_tuples = [tuple(m) for m in mention_idxs.tolist()]
+        mention_hidden_states = mention_hidden_states.squeeze(0)        # (N, H)
+        kg_enhanced_mentions  = []
 
         can_use_random = use_random_kg_id and bool(self._all_entity_ids)
-        if use_random_kg_id and not bool(self._all_entity_ids):
-             print("Warning: use_random_kg_id is True, but no entity IDs are available for random sampling.")
+        if use_random_kg_id and not can_use_random:
+            print("Warning: use_random_kg_id=True but no entity IDs are available.")
 
-        # For each predicted mention, convert span indices to a string.
-        for i, span in enumerate(original_mention_tuples):
-            start_idx, end_idx = span[0], span[1]
-            # Here tokens[bidx] is the list of tokens for the document.
-            mention_tokens = tokens[bidx][start_idx:end_idx+1]
-            mention_text = " ".join(mention_tokens)
-            # Entity linking: get entity id (or None if no match)
+        for i, (start_idx, end_idx) in enumerate(map(tuple, mention_idxs.tolist())):
+            span_tokens  = tokens[bidx][start_idx:end_idx + 1]
+            mention_text = " ".join(span_tokens)
+
             entity_id = self.entity_linker.get_entity(mention_text)
-            self.epoch_mentions += 1
-            
-            kg_emb = torch.zeros(self.kg_embedding_dim, device=mention_hidden_states.device) # Default zero
-            if entity_id is not None:
-                if can_use_random:
-                    # Use the random entity ID
-                    entity_id = random.choice(self._all_entity_ids)
-                retrieved_emb = self.get_embedding(entity_id).to(mention_hidden_states.device)
-                # Check if retrieval was successful (might still be zeros if entity not in KG map)
-                if not torch.equal(retrieved_emb, torch.zeros(self.kg_embedding_dim, device=mention_hidden_states.device)):
-                    kg_emb = retrieved_emb
-                    # Track this mention
-                    kg_enhanced_mention_indices.append(i)
-                    kg_enhanced_mentions.append(span)
-                    #print(f"Found KG embedding for span {mention_text} with ID {entity_id}")
+            if can_use_random and entity_id is not None:
+                entity_id = random.choice(self._all_entity_ids)
 
-            # Count how many KG embeddings were successfully found.
-            if not torch.equal(kg_emb, torch.zeros(self.kg_embedding_dim, device=mention_hidden_states.device)):    
-                self.epoch_kg_found += 1                
+            kg_emb = self.lookup_entity(entity_id).to(mention_hidden_states.device)
 
-            # Choose the combining strategy.
-            if combining_method == "concat":
-                # Concatenate the mention representation with the KG embedding.
-                combined = torch.cat([mention_hidden_states[i], kg_emb], dim=-1)
-                fused_reps.append(combined)
-            elif combining_method == "add":
-                # Add the KG embedding to the mention representation.
-                projected_kg_emb = self.kg_projector(kg_emb)
-                combined = mention_hidden_states[i] + projected_kg_emb
-                fused_reps.append(combined)
-            elif combining_method == "gating":
-                current_mention_state = mention_hidden_states[i]
-                # GatingFusion expects batch dimension, so unsqueeze inputs
-                h_m = current_mention_state.unsqueeze(0) # [1, hidden_dim]
-                z_m = kg_emb.unsqueeze(0)                # [1, kg_dim]
-                # GatingFusion handles projection internally and returns [1, hidden_dim]
-                combined = self.gating_fusion(h_m, z_m).squeeze(0) # Remove batch dim -> [hidden_dim]
-                fused_reps.append(combined)    
-            elif combining_method == "fusion":
-                # Project the fused vector back to the expected dimension.
-                #kg_emb = self.kg_projector(kg_emb)
-                combined = torch.cat([mention_hidden_states[i], kg_emb], dim=-1)
-                fused = self.kg_fusion_layer(combined)
-                fused_reps.append(fused)
-            elif combining_method == "none":
-                # <---- NO KG EMBEDDING AT ALL. Just keep the original mention rep. ---->
-                fused_reps.append(mention_hidden_states[i])
+            # ---------- bookkeeping ----------
+            if entity_id is None:
+                self._epoch_unlinked += 1
             else:
-                # Fallback or raise an error if unrecognized method
-                raise ValueError(f"Unrecognized combining_method: {combining_method}")
+                self._epoch_linked   += 1
+                kg_enhanced_mentions.append((start_idx, end_idx))
 
+            # ---------- fusion ----------
+            h_m = mention_hidden_states[i]
+            if combining_method == "concat":
+                fused = torch.cat([h_m, kg_emb], dim=-1)
+            elif combining_method == "add":
+                fused = h_m + self.kg_projector(kg_emb)
+            elif combining_method == "gating":
+                fused = self.gating_fusion(h_m.unsqueeze(0),
+                                        kg_emb.unsqueeze(0)).squeeze(0)
+            elif combining_method == "fusion":
+                fused = self.kg_fusion_layer(torch.cat([h_m, kg_emb], dim=-1))
+            elif combining_method == "none":
+                fused = h_m
+            else:
+                raise ValueError(f"Unknown combining_method '{combining_method}'")
 
+            fused_reps.append(fused)
 
-        
-        # Print how many were found at the end of an epoch.
-        if (self.step + 1) % 79 == 0:
-            print(f"Epoch complete: {self.epoch_kg_found} KG embeddings found out of {self.epoch_mentions} mentions")
-            self.epoch_kg_found = 0  
-            self.epoch_mentions = 0  
-        
-        if len(fused_reps) > 0:
+        # --------- epoch printout ----------
+        if (self.step + 1) % self._batches_per_epoch == 0:
+            total = self._epoch_linked + self._epoch_unlinked
+            linked_pct = 100 * self._epoch_linked / max(total, 1)
+            print(f"[Epoch completed] KG‑linked {self._epoch_linked}/{total} "
+                f"({linked_pct:.1f} %) | unlinked {self._epoch_unlinked}")
+            self._epoch_linked = 0
+            self._epoch_unlinked = 0
+
+        # --------- stack result ----------
+        if fused_reps:
             fused_reps = torch.stack(fused_reps, dim=0)
         else:
-            # In case there are no mentions, return an empty tensor with proper shape.
-            fused_reps = torch.empty(0, self.token_hidden_size * 2, device=mention_hidden_states.device)
-        
+            feat_dim  = mention_hidden_states.size(-1)
+            fused_reps = torch.empty(0, feat_dim, device=mention_hidden_states.device)
+
         return fused_reps, kg_enhanced_mentions
 
 

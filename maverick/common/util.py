@@ -3,6 +3,7 @@ import spacy
 import hydra
 import torch
 import pytorch_lightning as pl
+import numpy as np
 
 from nltk import sent_tokenize
 from torch.nn import Module, Linear, LayerNorm, Dropout, GELU, GLU
@@ -12,7 +13,7 @@ import torch.nn.functional as F
 from maverick.common.constants import *
 
 class SpacyEntityLinkerWrapper:
-    def __init__(self, spacy_model="en_core_web_sm"):
+    def __init__(self, spacy_model="en_core_web_trf"):
         # Load the spaCy language model.
         self.nlp = spacy.load(spacy_model)
         # Add the entity linker pipeline component if not already present.
@@ -147,6 +148,41 @@ def unpad_gold_clusters(gold_clusters):
             if len(new_cluster) != 0:
                 new_gold_clusters.append(tuple(new_cluster))
     return new_gold_clusters
+
+class KGEmbeddingTable(nn.Module):
+    """
+    Wraps the fixed mem‑mapped matrix *and* adds a trainable UNK row.
+    """
+    def __init__(self, mmap_path: str, num_entities: int, dim: int):
+        super().__init__()
+        # ➊  fixed embeddings loaded as a non‑trainable buffer
+        self.register_buffer(
+            "_mmap",
+            torch.from_numpy(np.memmap(mmap_path,
+                                       dtype=np.float32,
+                                       mode="r",
+                                       shape=(num_entities, dim)))
+        )
+        # ➋  one extra row that *does* receive gradients
+        self.unk = nn.Parameter(torch.zeros(dim))
+        nn.init.normal_(self.unk, std=0.02)
+
+    def forward(self, idx: torch.Tensor) -> torch.Tensor:
+        """
+        idx ∈ [-1 … num_entities‑1]
+        ‑1 maps to UNK.
+        """
+        unk_mask = (idx == -1)
+        # fetch from buffer; whatever is −1 will be clamped to zero row but overwritten later
+        idx_safe = idx.clone().clamp(min=0)
+        out = self._mmap[idx_safe]
+        # replace UNKs
+        if unk_mask.any():
+            out = out.clone()            # break view on mmap
+            out[unk_mask] = self.unk
+        return out
+
+
 
 class GatingFusion(nn.Module):
     """
