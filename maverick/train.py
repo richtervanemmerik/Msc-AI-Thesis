@@ -6,7 +6,7 @@ import torch
 
 from pathlib import Path
 from typing import Optional
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import (
     EarlyStopping,
@@ -21,21 +21,44 @@ from maverick.data.pl_data_modules import BasePLDataModule
 from maverick.models.pl_modules import BasePLModule
 
 import wandb
+import time
+from datetime import timedelta
+from pytorch_lightning.callbacks import Timer
 
 torch.set_printoptions(edgeitems=100)
-
+os.environ["WANDB_PROJECT"] = "Maverick_incr"
 
 def train(conf: omegaconf.DictConfig) -> None:
     # fancy logger
     console = Console()
-
     run = wandb.init()
-    sweep_params = OmegaConf.create(dict(wandb.config))
-    conf = OmegaConf.merge(conf, sweep_params)
+    from arg_parser import parse_args
+    args = parse_args()
+    # ── model selection ───────────────────────────────────────────────
+    conf.model.module.model.huggingface_model_name  = args.model_name
+    # ── schedule / trainer ────────────────────────────────────────────
+    conf.train.pl_trainer.max_epochs                = args.epochs
+    conf.train.pl_trainer.accumulate_grad_batches   = args.accumulate_grad_batches
+    # ── optimiser & LR scheduler (current opt = "Adafactor") ─────────
+    conf.model.module.Adafactor.lr                  = args.learning_rate
+    conf.model.module.Adafactor.weight_decay        = args.weight_decay
+    conf.model.module.lr_scheduler.num_warmup_steps = args.num_warmup_steps
+    conf.model.module.lr_scheduler.num_training_steps = args.num_training_steps
+    # ── incremental model tweaks ──────────────────────────────────────
+    conf.model.module.model.incremental_model_num_layers = (
+        args.incremental_model_num_layers
+    )
+    # ── KG fusion options ─────────────────────────────────────────────
+    conf.model.module.model.kg_fusion_strategy      = args.kg_fusion_strategy
+    conf.model.module.model.kg_unknown_handling     = args.kg_unknown_handling
+    conf.model.module.model.use_random_kg_all       = args.use_random_kg_all
+    conf.model.module.model.use_random_kg_selective = args.use_random_kg_selective
+    # ── early-stopping patience (callback lives in train) ─────────────
+    conf.train.early_stopping_callback.patience     = args.patience
 
-    console.log("Running with WandB Sweep config:")
-    # Use wandb.config for logging sweep HPs conveniently
-    console.log(wandb.config)
+    print("\n=== FINAL CONFIG USED FOR TRAINING ===\n",
+        OmegaConf.to_yaml(conf, resolve=True))
+
     # reproducibility
     pl.seed_everything(conf.train.seed)
     set_determinism_the_old_way(conf.train.pl_trainer.deterministic)
@@ -80,6 +103,9 @@ def train(conf: omegaconf.DictConfig) -> None:
 
         # callbacks declaration
     callbacks_store = [RichProgressBar()]
+    ## tracking time
+    timer_cb = Timer(interval="step")              #   step granularity is enough here
+    callbacks_store.append(timer_cb)
 
     if conf.train.early_stopping_callback is not None:
         early_stopping_callback: EarlyStopping = hydra.utils.instantiate(conf.train.early_stopping_callback)
@@ -101,6 +127,34 @@ def train(conf: omegaconf.DictConfig) -> None:
 
     # module fit
     trainer.fit(pl_module, datamodule=pl_data_module)
+
+    # ---- total training wall-time ---------------------------------
+    # Lightning’s Timer tracks the stages **train/validate/test/...**
+    train_sec = timer_cb.time_elapsed("train") or 0.0          # training loop
+    val_sec   = timer_cb.time_elapsed("validate") or 0.0       # validation loop
+    total_fit_sec = train_sec + val_sec                        # “fit” = train + val
+
+    console.log(f"Training finished in {timedelta(seconds=int(total_fit_sec))}")
+    run.log({"time/fit_sec": total_fit_sec})
+
+    # ----------------------------------------------------------------
+    # define best_model_path *once* so we can use it safely later on
+    best_model_path = None
+    if isinstance(model_checkpoint_callback, ModelCheckpoint):
+        best_model_path = model_checkpoint_callback.best_model_path
+        console.log(f"Best model path: {best_model_path}")
+
+    # ---- run the test loop -----------------------------------------
+    test_results = None
+    if best_model_path and os.path.exists(best_model_path):
+        console.log(f"Loading best model for testing: {best_model_path}")
+        trainer.test(pl_module, datamodule=pl_data_module, ckpt_path=best_model_path)
+        total_test_sec = timer_cb.time_elapsed("test") or 0.0
+        console.log(f"Test loop took {total_test_sec:.2f}s")
+        run.log({"time/test_sec": total_test_sec})
+    else:
+        console.log("Skipping testing – no valid best-checkpoint was found.")
+
 
     # # module test
     # trainer.test(pl_module, datamodule=pl_data_module)
@@ -131,11 +185,11 @@ def set_determinism_the_old_way(deterministic: bool):
         os.environ["HOROVOD_FUSION_THRESHOLD"] = str(0)
 
 
+# @hydra.main(config_path="./conf", config_name="root", version_base="1.1")
 @hydra.main(config_path="../conf", config_name="root", version_base="1.1")
-def main(conf: omegaconf.DictConfig):
-    print(OmegaConf.to_yaml(conf))
-    train(conf)
-
+def main(cfg: DictConfig) -> None:
+    #print(OmegaConf.to_yaml(cfg, resolve=True))  
+    train(cfg)
 
 if __name__ == "__main__":
     main()

@@ -46,6 +46,8 @@ class Maverick_incr(torch.nn.Module):
         # document transformer encoder
         self.kg_fusion_strategy = kwargs["kg_fusion_strategy"] # "baseline", "concat_linear", "additive", "gated"
         self.kg_unknown_handling = kwargs["kg_unknown_handling"] # "zero_vector", "unk_embed"
+        self.use_random_kg_all = kwargs["use_random_kg_all"] # Apply random KGE to ALL mentions
+        self.use_random_kg_selective = kwargs["use_random_kg_selective"]
         self.encoder_hf_model_name = kwargs["huggingface_model_name"]
         self.encoder = AutoModel.from_pretrained(self.encoder_hf_model_name)
         self.encoder_config = AutoConfig.from_pretrained(self.encoder_hf_model_name)
@@ -80,12 +82,12 @@ class Maverick_incr(torch.nn.Module):
         self.embeddings = self.load_embeddings(embeddings_file, self.embedding_shape)
         self.kg_embedding_dim = 100
         self.kg_fusion_layer = nn.Linear(self.token_hidden_size * 2 + self.kg_embedding_dim, self.token_hidden_size * 2)
-        self.kg_projector = nn.Linear(self.kg_embedding_dim, self.kg_embedding_dim)
+        #self.kg_projector = nn.Linear(self.kg_embedding_dim, self.kg_embedding_dim)
         self.entity_linker = SpacyEntityLinkerWrapper()
         self.kg_table = KGEmbeddingTable(embeddings_file,
                                  num_entities=self.embedding_shape[0],
                                  dim=self.kg_embedding_dim)
-        # self.kg_projector = nn.Linear(self.kg_embedding_dim, self.token_hidden_size * 2)
+        self.kg_projector = nn.Linear(self.kg_embedding_dim, self.token_hidden_size * 2)
         self.gating_fusion = GatingFusion(hidden_dim=self.token_hidden_size * 2, kg_dim=self.kg_embedding_dim)
         
 
@@ -107,12 +109,20 @@ class Maverick_incr(torch.nn.Module):
         self.incremental_transformer = MentionClusterClassifier(model=self.incremental_model)
 
         # encodes mentions for incremental clustering
-        self.incremental_span_encoder = RepresentationLayer(
+        if self.kg_fusion_strategy == "concat":
+            self.incremental_span_encoder = RepresentationLayer(
+                type=self.representation_layer_type,
+                input_dim=self.token_hidden_size * 2 + self.kg_embedding_dim,
+                output_dim=self.incremental_model_hidden_size,
+                hidden_dim=int(self.mention_hidden_size / 2),
+            )
+        else:    
+            self.incremental_span_encoder = RepresentationLayer(
             type=self.representation_layer_type,
             input_dim=self.token_hidden_size * 2,
             output_dim=self.incremental_model_hidden_size,
             hidden_dim=int(self.mention_hidden_size / 2),
-        )
+            )
 
         # mention extraction layers
         # representation of start token
@@ -162,22 +172,23 @@ class Maverick_incr(torch.nn.Module):
         return np.memmap(embeddings_file, dtype=np.float32, mode='r', shape=embedding_shape)
 
     def lookup_entity(self, entity_id: str) -> torch.Tensor:
-        idx = self.entity_to_index.get(entity_id, -1)   # -1 ⇒ UNK
-        return self.kg_table(torch.tensor(idx, device=self.encoder.device))
+        """Looks up entity ID, returns index (-1 for UNK)."""
+        idx = self.entity_to_index.get(entity_id, -1)   # -1 => UNK
+        # The actual embedding lookup happens in KGEmbeddingTable.forward
+        return torch.tensor(idx, device=self.encoder.device) # Return index tensor
 
-    def get_embedding(self, entity_str, default_embedding=None):
-        """Retrieves the embedding for a given entity string.
+    def get_kg_embedding(self, entity_id: str) -> torch.Tensor:
+        """Gets the KG embedding vector based on ID and unknown handling strategy."""
+        entity_idx_tensor = self.lookup_entity(entity_id) # Gets index (-1 for UNK)
         
-        Returns a torch tensor on the same device as needed.
-        """
-        idx = self.entity_to_index.get(entity_str)
-        if idx is None:
-            # Return a default embedding (e.g., zeros) if the entity isn't found.
-            return default_embedding if default_embedding is not None else torch.zeros(self.kg_embedding_dim)
-        # Get the embedding row from the memmap and convert it to a torch tensor.
-        emb_np = self.embeddings[idx]
-        emb_tensor = torch.from_numpy(emb_np)
-        return emb_tensor
+        # Get embedding from table (handles UNK index internally via its forward method)
+        kg_emb = self.kg_table(entity_idx_tensor) 
+
+        # Apply unknown handling strategy *if* the entity was not found (index is -1)
+        if entity_idx_tensor == -1 and self.kg_unknown_handling == "zero_vector":
+            kg_emb = torch.zeros_like(kg_emb) # Overwrite UNK embed with zeros
+
+        return kg_emb.to(self.encoder.device) # Ensure device consistency
     
     def augment_mention_reps_with_kg(
             self,
@@ -192,6 +203,10 @@ class Maverick_incr(torch.nn.Module):
         mention_hidden_states = mention_hidden_states.squeeze(0)        # (N, H)
         kg_enhanced_mentions  = []
 
+        # If baseline, no KG info is used, return original states
+        if self.kg_fusion_strategy == "baseline":
+            return mention_hidden_states, [] # Return original states and empty list of enhanced mentions
+
         can_use_random = use_random_kg_id and bool(self._all_entity_ids)
         if use_random_kg_id and not can_use_random:
             print("Warning: use_random_kg_id=True but no entity IDs are available.")
@@ -201,10 +216,16 @@ class Maverick_incr(torch.nn.Module):
             mention_text = " ".join(span_tokens)
 
             entity_id = self.entity_linker.get_entity(mention_text)
-            if can_use_random and entity_id is not None:
-                entity_id = random.choice(self._all_entity_ids)
+            final_entity_id = entity_id # Start with the linked ID
 
-            kg_emb = self.lookup_entity(entity_id).to(mention_hidden_states.device)
+            if self.use_random_kg_all:
+                # Always replace with a random ID
+                final_entity_id = random.choice(self._all_entity_ids)
+            elif self.use_random_kg_selective and entity_id is not None:
+                # Replace only if successfully linked initially
+                final_entity_id = random.choice(self._all_entity_ids)
+
+            kg_emb = self.get_kg_embedding(final_entity_id)
 
             # ---------- bookkeeping ----------
             if entity_id is None:
@@ -215,16 +236,16 @@ class Maverick_incr(torch.nn.Module):
 
             # ---------- fusion ----------
             h_m = mention_hidden_states[i]
-            if combining_method == "concat":
-                fused = torch.cat([h_m, kg_emb], dim=-1)
-            elif combining_method == "add":
+            if self.kg_fusion_strategy == "add":
                 fused = h_m + self.kg_projector(kg_emb)
-            elif combining_method == "gating":
+            elif self.kg_fusion_strategy == "gating":
                 fused = self.gating_fusion(h_m.unsqueeze(0),
                                         kg_emb.unsqueeze(0)).squeeze(0)
-            elif combining_method == "fusion":
+            elif self.kg_fusion_strategy == "fusion":
                 fused = self.kg_fusion_layer(torch.cat([h_m, kg_emb], dim=-1))
-            elif combining_method == "none":
+            elif self.kg_fusion_strategy == "concat":
+                fused = torch.cat([h_m, kg_emb], dim=-1)
+            elif self.kg_fusion_strategy == "none":
                 fused = h_m
             else:
                 raise ValueError(f"Unknown combining_method '{combining_method}'")
@@ -245,7 +266,10 @@ class Maverick_incr(torch.nn.Module):
             fused_reps = torch.stack(fused_reps, dim=0)
         else:
             feat_dim  = mention_hidden_states.size(-1)
-            fused_reps = torch.empty(0, feat_dim, device=mention_hidden_states.device)
+            if self.kg_fusion_strategy == "concat":
+                fused_reps = torch.empty(0, feat_dim + self.kg_embedding_dim, device=mention_hidden_states.device)
+            else:
+                fused_reps = torch.empty(0, feat_dim, device=mention_hidden_states.device)
 
         return fused_reps, kg_enhanced_mentions
 
@@ -352,6 +376,11 @@ class Maverick_incr(torch.nn.Module):
         coreference_loss = torch.tensor([0.0], requires_grad=True, device=self.incremental_model.device)
         mentions_hidden_states = mentions_hidden_states[0]
         idx_to_hs = dict(zip([tuple(m) for m in mentions_idxs.tolist()], mentions_hidden_states))
+        # NEW CHANGE LATER
+        # idx_to_hs = {
+        #     (int(s0), int(s1)): h
+        #     for (s0, s1), h in zip(mentions_idxs.tolist(), mentions_hidden_states)
+        # }
 
         # for each mention
         for idx, (
@@ -424,9 +453,31 @@ class Maverick_incr(torch.nn.Module):
                     span_idxs = new_idxs
 
             hs = torch.stack([idx_to_hs[span_idx] for span_idx in span_idxs])
+            # NEW CHANGE LATER
+            # hs = torch.stack([
+            #     idx_to_hs[(int(span_idx[0]), int(span_idx[1]))]
+            #     for span_idx in span_idxs
+            #     if (int(span_idx[0]), int(span_idx[1])) in idx_to_hs   # safe even if ≥30 filter dropped it
+            # ])
 
             forward_matrix[cluster_idx][: hs.shape[0]] = hs
             forward_am[cluster_idx][: hs.shape[0]] = torch.ones((hs.shape[0]), device=self.encoder.device)
+        # for cluster_idx, span_idxs in enumerate(cluster_idxs):
+        #     if stage == "train" and len(span_idxs) > 30:
+        #         span_idxs = self._downsample_cluster(span_idxs)   # 30‑span logic
+
+        #     # -------- cast & filter ----------
+        #     valid_hs = [
+        #         idx_to_hs[(int(s0), int(s1))]
+        #         for (s0, s1) in span_idxs
+        #         if (int(s0), int(s1)) in idx_to_hs
+        #     ]
+        #     if not valid_hs:                 
+        #         continue                     
+
+        #     hs = torch.stack(valid_hs)       
+        #     forward_matrix[cluster_idx, :hs.size(0)] = hs
+        #     forward_am[cluster_idx, :hs.size(0)]     = 1
 
         return forward_matrix, forward_am
 
