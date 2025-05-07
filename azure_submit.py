@@ -14,32 +14,26 @@ CONDA_FILE_PATH = (
     "/home/azureuser/cloudfiles/code/Users/rvanemmerik1/Msc-AI-Thesis/maverick.yml"
 )
 
-# ------------------------------------------------------------
-# One clean Hydra-style command line ― **every token is a Hydra
-# override**, so anything defined in the YAML stack can be
-# replaced here.
-# ------------------------------------------------------------
+
 COMMAND = (
     "python train.py "
     # -------- optimiser -------------------------------------
-    "module.opt=Adafactor "
-    "module.Adafactor.lr=${{inputs.learning_rate}} "
-    "module.Adafactor.weight_decay=${{inputs.weight_decay}} "
+    "--learning_rate ${{inputs.learning_rate}} "
+    "--weight_decay ${{inputs.weight_decay}} "
     # -------- scheduler -------------------------------------
-    "module.lr_scheduler.num_warmup_steps=${{inputs.warmup_steps}} "
-    "module.lr_scheduler.num_training_steps=${{inputs.training_steps}} "
+    "--num_warmup_steps ${{inputs.warmup_steps}} "
+    "--num_training_steps ${{inputs.training_steps}} "
     # -------- model knobs ------------------------------------
-    "train.model_name=${{inputs.model_name}} "  # goes into conf/train/*
-    "module.model.huggingface_model_name=answerdotai/${{inputs.model_name}} "
-    "module.model.incremental_model_num_layers=${{inputs.incremental_layers}} "
-    "module.model.kg_fusion_strategy=${{inputs.kg_fusion_strategy}} "
-    "module.model.kg_unknown_handling=${{inputs.kg_unknown_handling}} "
-    "module.model.use_random_kg_all=${{inputs.use_random_kg_all}} "
-    "module.model.use_random_kg_selective=${{inputs.use_random_kg_selective}} "
+    "--model_name=${{inputs.model_name}} "
+    "--incremental_model_num_layers ${{inputs.incremental_layers}} "
+    "--kg_fusion_strategy ${{inputs.kg_fusion_strategy}} "
+    "--kg_unknown_handling ${{inputs.kg_unknown_handling}} "
+    "--use_random_kg_all ${{inputs.use_random_kg_all}} "
+    "--use_random_kg_selective ${{inputs.use_random_kg_selective}} "
     # -------- trainer ---------------------------------------
-    "pl_trainer.accumulate_grad_batches=${{inputs.gradient_accumulation_steps}} "
-    "pl_trainer.max_epochs=${{inputs.epochs}} "
-    "pl_trainer.early_stopping_callback.patience=${{inputs.patience}} "
+    "--accumulate_grad_batches ${{inputs.gradient_accumulation_steps}} "
+    "--epochs ${{inputs.epochs}} "
+    "--patience ${{inputs.patience}} "
 )
 
 # ------------------------------------------------------------------
