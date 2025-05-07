@@ -4,6 +4,8 @@ datamodule:
     train:
       _target_: data.datasets.OntonotesDataset
       name: 'train'
+      ## [!CHANGE]
+      # path: '/root/data/litbank/official/train-splitted.english.jsonlines'  
       path: 'data/litbank/official/train-splitted.english.jsonlines'
       batch_size: "${data.datamodule.batch_sizes.train}"
       processed_dataset_path: 'data/cache_${data.datamodule.dataset.train.max_doc_len}/${model.module.model.huggingface_model_name}/ontonotes/train'

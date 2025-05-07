@@ -14,8 +14,8 @@ module:
     scale_parameter: False
     relative_step: False
   lr_scheduler: 
-    num_warmup_steps: 500 ## {450, 900, 1200}
-    num_training_steps: 5000
+    num_warmup_steps: 500 ## --500 litbank --90300 preco
+    num_training_steps: 5000 ## --5000 litbank --900300 preco
   opt: "Adafactor" #RAdam
   model:
     _target_: models.model_incr.Maverick_incr
@@ -27,3 +27,7 @@ module:
     incremental_model_num_layers: 1
     entity2id_path: "/home/azureuser/cloudfiles/code/Users/rvanemmerik1/Msc-AI-Thesis/maverick/data/Wikidata/knowledge_graphs/entity2id.txt"
     embeddings_path: "/home/azureuser/cloudfiles/code/Users/rvanemmerik1/Msc-AI-Thesis/maverick/data/Wikidata/embeddings/dimension_100/transe/entity2vec.bin"
+    kg_fusion_strategy: "gating"       # Options: "baseline", "fusion", "add", "gating", "none"
+    kg_unknown_handling: "unk_embed"      # Options: "zero_vector", "unk_embed"
+    use_random_kg_all: False              
+    use_random_kg_selective: False        

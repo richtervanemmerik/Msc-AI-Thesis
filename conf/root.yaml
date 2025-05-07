@@ -11,7 +11,7 @@ defaults:
   - _self_
   - train: default_train
   - model: incr/modernbert-base
-  - data: litbank
+  - data: preco
   - evaluation: default_evaluation
   - logging: wandb_logging
   - override hydra/job_logging: default

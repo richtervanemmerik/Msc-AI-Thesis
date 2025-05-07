@@ -4,9 +4,9 @@ datamodule:
     train:
       _target_: data.datasets.OntonotesDataset
       name: 'train'
-      path: 'data/prepare_preco/train_36120_preprocessed_preco.jsonl'
+      path: 'data/prepare_preco/train_600_preprocessed_preco.jsonl'
       batch_size: "${data.datamodule.batch_sizes.train}"
-      processed_dataset_path: 'data/cache_${data.datamodule.dataset.train.max_doc_len}/${model.module.model.huggingface_model_name}/ontonotes/train'
+      processed_dataset_path: 'data/cache_${data.datamodule.dataset.train.max_doc_len}/${model.module.model.huggingface_model_name}/preco/train'
       tokenizer: "${model.module.model.huggingface_model_name}"
       max_doc_len: 1500
     val:
@@ -14,14 +14,14 @@ datamodule:
       name: 'val'
       path: 'data/prepare_preco/dev_500_preprocessed_preco.jsonl'
       batch_size: "${data.datamodule.batch_sizes.train}"
-      processed_dataset_path: 'data/cache_${data.datamodule.dataset.train.max_doc_len}/${model.module.model.huggingface_model_name}/ontonotes/val'
+      processed_dataset_path: 'data/cache_${data.datamodule.dataset.train.max_doc_len}/${model.module.model.huggingface_model_name}/preco/val'
       tokenizer: "${model.module.model.huggingface_model_name}"
     test:
       _target_: data.datasets.OntonotesDataset
       name: 'test'
       path: 'data/prepare_preco/test_preprocessed_preco.jsonl'
       batch_size: "${data.datamodule.batch_sizes.train}"
-      processed_dataset_path: 'data/cache_${data.datamodule.dataset.train.max_doc_len}/${model.module.model.huggingface_model_name}/ontonotes/test'
+      processed_dataset_path: 'data/cache_${data.datamodule.dataset.train.max_doc_len}/${model.module.model.huggingface_model_name}/preco/test'
       tokenizer: "${model.module.model.huggingface_model_name}"
 
 
