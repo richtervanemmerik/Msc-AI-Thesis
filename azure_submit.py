@@ -25,7 +25,7 @@ COMMAND = (
     "model.module.lr_scheduler.num_training_steps=${{inputs.training_steps}} "
     # -------- model knobs ------------------------------------
     "train.model_name=${{inputs.model_name}} "                        
-    "model.module.model.huggingface_model_name=answerdotai/${{inputs.model_name}} "
+    "model.module.model.huggingface_model_name=${{inputs.model_name}} "
     "model.module.model.incremental_model_num_layers=${{inputs.incremental_layers}} "
     "model.module.model.kg_fusion_strategy=${{inputs.kg_fusion_strategy}} "
     "model.module.model.kg_unknown_handling=${{inputs.kg_unknown_handling}} "
