@@ -16,7 +16,6 @@ maverick/data/cache_1500/*
 maverick/data/litbank/*
 maverick/data/Wikidata/*
 maverick/data/prepare_preco/*
-maverick/conf/*
 maverick/conf/root.yaml
 .repo-to-text-settings.yaml
 # Created by https://www.toptal.com/developers/gitignore/api/jetbrains+all,vscode,python,jupyternotebooks,linux,windows,macos

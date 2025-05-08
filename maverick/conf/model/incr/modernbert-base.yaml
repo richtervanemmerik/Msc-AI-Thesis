@@ -1,0 +1,33 @@
+module:
+  _target_: models.pl_modules.BasePLModule
+  RAdam:
+    _target_: torch.optim.RAdam
+    lr: 2e-5
+  AdamW:
+    _target_: torch.optim.AdamW
+    lr: 3e-5  
+    weight_decay: 0.01
+  Adafactor:
+    _target_: transformers.Adafactor
+    lr: 3e-5 ## 3e-5
+    weight_decay: 0.01
+    scale_parameter: False
+    relative_step: False
+  lr_scheduler: 
+    num_warmup_steps: 500 ## --500 litbank --90300 preco
+    num_training_steps: 5000 ## --5000 litbank --900300 preco
+  opt: "Adafactor" #RAdam
+  model:
+    _target_: models.model_incr.Maverick_incr
+    language_model: "ModernBERT-base"
+    huggingface_model_name: "answerdotai/ModernBERT-base"
+    freeze_encoder: False
+    span_representation: "concat_start_end"
+    incremental_model_hidden_size: 768
+    incremental_model_num_layers: 1
+    entity2id_path: "/home/azureuser/cloudfiles/code/Users/rvanemmerik1/Msc-AI-Thesis/maverick/data/Wikidata/knowledge_graphs/entity2id.txt"
+    embeddings_path: "/home/azureuser/cloudfiles/code/Users/rvanemmerik1/Msc-AI-Thesis/maverick/data/Wikidata/embeddings/dimension_100/transe/entity2vec.bin"
+    kg_fusion_strategy: "gating"       # Options: "baseline", "fusion", "add", "gating", "none"
+    kg_unknown_handling: "unk_embed"      # Options: "zero_vector", "unk_embed"
+    use_random_kg_all: False              
+    use_random_kg_selective: False        
