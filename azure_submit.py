@@ -18,25 +18,25 @@ CONDA_FILE_PATH = (
 COMMAND = (
     "python train.py "
     # -------- optimiser -------------------------------------
-    "module.Adafactor.lr=${{inputs.learning_rate}} "
-    "module.Adafactor.weight_decay=${{inputs.weight_decay}} "
+    "model.module.Adafactor.lr=${{inputs.learning_rate}} "
+    "model.module.Adafactor.weight_decay=${{inputs.weight_decay}} "
     # -------- scheduler -------------------------------------
-    "module.lr_scheduler.num_warmup_steps=${{inputs.warmup_steps}} "
-    "module.lr_scheduler.num_training_steps=${{inputs.training_steps}} "
+    "model.module.lr_scheduler.num_warmup_steps=${{inputs.warmup_steps}} "
+    "model.module.lr_scheduler.num_training_steps=${{inputs.training_steps}} "
     # -------- model knobs ------------------------------------
     "train.model_name=${{inputs.model_name}} "                        
-    "module.model.huggingface_model_name=answerdotai/${{inputs.model_name}} "
-    "module.model.incremental_model_num_layers=${{inputs.incremental_layers}} "
-    "module.model.kg_fusion_strategy=${{inputs.kg_fusion_strategy}} "
-    "module.model.kg_unknown_handling=${{inputs.kg_unknown_handling}} "
-    "module.model.use_random_kg_all=${{inputs.use_random_kg_all}} "
-    "module.model.use_random_kg_selective=${{inputs.use_random_kg_selective}} "
+    "model.module.model.huggingface_model_name=answerdotai/${{inputs.model_name}} "
+    "model.module.model.incremental_model_num_layers=${{inputs.incremental_layers}} "
+    "model.module.model.kg_fusion_strategy=${{inputs.kg_fusion_strategy}} "
+    "model.module.model.kg_unknown_handling=${{inputs.kg_unknown_handling}} "
+    "model.module.model.use_random_kg_all=${{inputs.use_random_kg_all}} "
+    "model.module.model.use_random_kg_selective=${{inputs.use_random_kg_selective}} "
     # -------- trainer ---------------------------------------
-    "pl_trainer.accumulate_grad_batches=${{inputs.gradient_accumulation_steps}} "
-    "pl_trainer.max_epochs=${{inputs.epochs}} "
-    "pl_trainer.early_stopping_callback.patience=${{inputs.patience}} "
+    "train.pl_trainer.accumulate_grad_batches=${{inputs.gradient_accumulation_steps}} "
+    "train.pl_trainer.max_epochs=${{inputs.epochs}} "
+    "train.pl_trainer.early_stopping_callback.patience=${{inputs.patience}} "
     # -------- data ------------------------------------------
-    "defaults.data=${{inputs.data}} "
+    "data=${{inputs.data}} "
 )
 
 # ------------------------------------------------------------------
@@ -80,5 +80,9 @@ if __name__ == "__main__":
             inputs=job_input_args,
             environment=f"{ENVIRONMENT_NAME}@latest",
             compute=COMPUTE_NAME,
+            environment_variables={
+                "WANDB_API_KEY": "ed6f1e0fdb4796d6a97528308f1bbc0aa4c043fe",
+                "HYDRA_FULL_ERROR": 1,
+            },
         )
     )
