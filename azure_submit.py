@@ -34,7 +34,7 @@ COMMAND = (
     # -------- trainer ---------------------------------------
     "train.pl_trainer.accumulate_grad_batches=${{inputs.gradient_accumulation_steps}} "
     "train.pl_trainer.max_epochs=${{inputs.epochs}} "
-    "train.pl_trainer.early_stopping_callback.patience=${{inputs.patience}} "
+    "train.early_stopping_callback.patience=${{inputs.patience}} "
     # -------- data ------------------------------------------
     "data=${{inputs.data}} "
 )
