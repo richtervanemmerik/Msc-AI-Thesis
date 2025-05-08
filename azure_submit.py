@@ -18,22 +18,25 @@ CONDA_FILE_PATH = (
 COMMAND = (
     "python train.py "
     # -------- optimiser -------------------------------------
-    "--learning_rate ${{inputs.learning_rate}} "
-    "--weight_decay ${{inputs.weight_decay}} "
+    "module.Adafactor.lr=${{inputs.learning_rate}} "
+    "module.Adafactor.weight_decay=${{inputs.weight_decay}} "
     # -------- scheduler -------------------------------------
-    "--num_warmup_steps ${{inputs.warmup_steps}} "
-    "--num_training_steps ${{inputs.training_steps}} "
+    "module.lr_scheduler.num_warmup_steps=${{inputs.warmup_steps}} "
+    "module.lr_scheduler.num_training_steps=${{inputs.training_steps}} "
     # -------- model knobs ------------------------------------
-    "--model_name=${{inputs.model_name}} "
-    "--incremental_model_num_layers ${{inputs.incremental_layers}} "
-    "--kg_fusion_strategy ${{inputs.kg_fusion_strategy}} "
-    "--kg_unknown_handling ${{inputs.kg_unknown_handling}} "
-    "--use_random_kg_all ${{inputs.use_random_kg_all}} "
-    "--use_random_kg_selective ${{inputs.use_random_kg_selective}} "
+    "train.model_name=${{inputs.model_name}} "                        
+    "module.model.huggingface_model_name=answerdotai/${{inputs.model_name}} "
+    "module.model.incremental_model_num_layers=${{inputs.incremental_layers}} "
+    "module.model.kg_fusion_strategy=${{inputs.kg_fusion_strategy}} "
+    "module.model.kg_unknown_handling=${{inputs.kg_unknown_handling}} "
+    "module.model.use_random_kg_all=${{inputs.use_random_kg_all}} "
+    "module.model.use_random_kg_selective=${{inputs.use_random_kg_selective}} "
     # -------- trainer ---------------------------------------
-    "--accumulate_grad_batches ${{inputs.gradient_accumulation_steps}} "
-    "--epochs ${{inputs.epochs}} "
-    "--patience ${{inputs.patience}} "
+    "pl_trainer.accumulate_grad_batches=${{inputs.gradient_accumulation_steps}} "
+    "pl_trainer.max_epochs=${{inputs.epochs}} "
+    "pl_trainer.early_stopping_callback.patience=${{inputs.patience}} "
+    # -------- data ------------------------------------------
+    "defaults.data=${{inputs.data}} "
 )
 
 # ------------------------------------------------------------------

@@ -32,29 +32,7 @@ def train(conf: omegaconf.DictConfig) -> None:
     # fancy logger
     console = Console()
     run = wandb.init()
-    from arg_parser import parse_args
-    args = parse_args()
-    # ── model selection ───────────────────────────────────────────────
-    conf.model.module.model.huggingface_model_name  = args.model_name
-    # ── schedule / trainer ────────────────────────────────────────────
-    conf.train.pl_trainer.max_epochs                = args.epochs
-    conf.train.pl_trainer.accumulate_grad_batches   = args.accumulate_grad_batches
-    # ── optimiser & LR scheduler (current opt = "Adafactor") ─────────
-    conf.model.module.Adafactor.lr                  = args.learning_rate
-    conf.model.module.Adafactor.weight_decay        = args.weight_decay
-    conf.model.module.lr_scheduler.num_warmup_steps = args.num_warmup_steps
-    conf.model.module.lr_scheduler.num_training_steps = args.num_training_steps
-    # ── incremental model tweaks ──────────────────────────────────────
-    conf.model.module.model.incremental_model_num_layers = (
-        args.incremental_model_num_layers
-    )
-    # ── KG fusion options ─────────────────────────────────────────────
-    conf.model.module.model.kg_fusion_strategy      = args.kg_fusion_strategy
-    conf.model.module.model.kg_unknown_handling     = args.kg_unknown_handling
-    conf.model.module.model.use_random_kg_all       = args.use_random_kg_all
-    conf.model.module.model.use_random_kg_selective = args.use_random_kg_selective
-    # ── early-stopping patience (callback lives in train) ─────────────
-    conf.train.early_stopping_callback.patience     = args.patience
+
 
     print("\n=== FINAL CONFIG USED FOR TRAINING ===\n",
         OmegaConf.to_yaml(conf, resolve=True))
