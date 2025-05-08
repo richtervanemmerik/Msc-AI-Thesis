@@ -164,7 +164,7 @@ def set_determinism_the_old_way(deterministic: bool):
 
 
 # @hydra.main(config_path="./conf", config_name="root", version_base="1.1")
-@hydra.main(config_path="../conf", config_name="root", version_base="1.1")
+@hydra.main(config_path="./conf", config_name="root", version_base="1.1")
 def main(cfg: DictConfig) -> None:
     #print(OmegaConf.to_yaml(cfg, resolve=True))  
     train(cfg)

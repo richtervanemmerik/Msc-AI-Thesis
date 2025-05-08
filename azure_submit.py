@@ -61,8 +61,8 @@ if __name__ == "__main__":
         epochs=50,
         learning_rate=3e-5,
         weight_decay=0.01,
-        warmup_steps=500,
-        training_steps=5000,
+        warmup_steps=1500,
+        training_steps=15000,
         incremental_layers=1,
         kg_fusion_strategy="baseline",
         kg_unknown_handling="unk_embed",
@@ -70,6 +70,7 @@ if __name__ == "__main__":
         use_random_kg_selective=False,
         gradient_accumulation_steps=2,
         patience=120,
+        data="preco"
     )
 
     ml_client.create_or_update(
