@@ -9,7 +9,7 @@ BASE_IMAGE = (
     "kpmgnldankfwepacr.azurecr.io/richter-master-thesis/maverick-training:latest"
 )
 ENVIRONMENT_NAME = "maverick"
-COMPUTE_NAME = "richter-gpu-a100-sw"
+COMPUTE_NAME = "richter-se-a100"
 CONDA_FILE_PATH = (
     "/home/azureuser/cloudfiles/code/Users/rvanemmerik1/Msc-AI-Thesis/maverick.yml"
 )
@@ -64,7 +64,7 @@ if __name__ == "__main__":
         warmup_steps=1500,
         training_steps=15000,
         incremental_layers=1,
-        kg_fusion_strategy="baseline",
+        kg_fusion_strategy="none",
         kg_unknown_handling="unk_embed",
         use_random_kg_all=False,
         use_random_kg_selective=False,
