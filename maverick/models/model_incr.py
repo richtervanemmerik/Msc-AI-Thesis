@@ -67,8 +67,13 @@ class Maverick_incr(torch.nn.Module):
         self.token_hidden_size = self.encoder_config.hidden_size
         self.span_pooling = SpanPooling(self.token_hidden_size)
         self.embedding_shape = (20982733, 100)
-        entity2id_file = kwargs["entity2id_path"]
-        embeddings_file = kwargs["embeddings_path"]
+        self.kge_model_name = kwargs["kge_model_name"]
+        if self.kge_model_name == "TransE":
+            entity2id_file = kwargs["TransE_entity2id_path"]
+            embeddings_file = kwargs["TransE_embeddings_path"]
+        elif self.kge_model_name == "ComplEx":
+            entity2id_file = kwargs["ComplEx_entity2id_path"]
+            embeddings_file = kwargs["ComplEx_embeddings_path"]
         # Load the mapping dictionary from string IDs to integer indices
         self.entity_to_index = self.load_entity_ids(entity2id_file)
         self._all_entity_ids = list(self.entity_to_index.keys())
