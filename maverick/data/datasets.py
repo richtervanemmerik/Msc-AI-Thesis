@@ -28,7 +28,7 @@ class OntonotesDataset(Dataset):
         special_tokens_dict = {"additional_special_tokens": ["[SPEAKER_START]", "[SPEAKER_END]"]}
         self.tokenizer.add_special_tokens(special_tokens_dict)
         try:
-            self.set = load_from_disk(hydra.utils.get_original_cwd() + "/" + processed_dataset_path + "/")
+            self.set = load_from_disk(processed_dataset_path + "/")
         except:
             self.set = dt.from_pandas(util.ontonotes_to_dataframe(path))
             if self.stage == "train":
@@ -39,7 +39,7 @@ class OntonotesDataset(Dataset):
             self.set = self.set.map(self.encode, batched=False)
             self.set = self.set.remove_columns(column_names=["speakers"])
             if self.stage != "test":
-                self.set.save_to_disk(hydra.utils.get_original_cwd() + "/" + processed_dataset_path + "/")
+                self.set.save_to_disk(processed_dataset_path + "/")
                 
         dataset_fraction = 1.0
         if dataset_fraction < 1.0:

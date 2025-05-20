@@ -14,7 +14,7 @@ logger = get_console_logger()
 
 
 def jsonlines_to_html(jsonlines_input_name, output):
-    cwd = str(hydra.utils.get_original_cwd())
+    cwd = "./"
     subprocess.call(
         "python3 "
         + cwd
