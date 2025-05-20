@@ -22,6 +22,7 @@ from maverick.models.pl_modules import BasePLModule
 
 import wandb
 import time
+from epoch_timelogger import EpochTimeLogger
 from datetime import timedelta
 from pytorch_lightning.callbacks import Timer
 
@@ -85,6 +86,8 @@ def train(conf: omegaconf.DictConfig) -> None:
     timer_cb = Timer(interval="step")              #   step granularity is enough here
     callbacks_store.append(timer_cb)
 
+    callbacks_store.append(EpochTimeLogger())
+
     if conf.train.early_stopping_callback is not None:
         early_stopping_callback: EarlyStopping = hydra.utils.instantiate(conf.train.early_stopping_callback)
         callbacks_store.append(early_stopping_callback)
@@ -103,6 +106,7 @@ def train(conf: omegaconf.DictConfig) -> None:
     console.log(f"Instantiating the Trainer")
     trainer: Trainer = hydra.utils.instantiate(conf.train.pl_trainer, callbacks=callbacks_store, logger=experiment_logger)
 
+    
     # module fit
     trainer.fit(pl_module, datamodule=pl_data_module)
 
