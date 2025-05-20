@@ -6,7 +6,7 @@ wandb_arg:
   _target_: pytorch_lightning.loggers.WandbLogger
   name: ${train.model_name}
   project: ${train.project_name}
-  save_dir: ./
+  save_dir: /mnt
   log_model: False
   mode: 'online'
 
