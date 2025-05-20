@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from maverick.common.constants import *
 
 class SpacyEntityLinkerWrapper:
-    def __init__(self, spacy_model="en_core_web_trf"):
+    def __init__(self, spacy_model="en_core_web_lg"):
         # Load the spaCy language model.
         self.nlp = spacy.load(spacy_model)
         # Add the entity linker pipeline component if not already present.
@@ -76,7 +76,7 @@ def flatten(l):
 
 def ontonotes_to_dataframe(file_path):
     # read file
-    df = pd.read_json(hydra.utils.get_original_cwd() + "/" + file_path, lines=True)
+    df = pd.read_json(file_path, lines=True)
     # ontonotes is split into words and sentences, jin sentences
     if "sentences" in df.columns:
         df["tokens"] = df["sentences"].apply(lambda x: flatten(x))
