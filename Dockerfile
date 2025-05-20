@@ -20,7 +20,7 @@ WORKDIR /maverick
 RUN pip install -e .
 
 RUN mkdir /root/data
-COPY ./maverick/data /root/data
+COPY ./data /root/data
 
 # Default command
 CMD ["/bin/bash"]
