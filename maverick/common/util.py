@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from maverick.common.constants import *
 
 class SpacyEntityLinkerWrapper:
-    def __init__(self, spacy_model="en_core_web_lg"):
+    def __init__(self, spacy_model="en_core_web_trf):
         # Load the spaCy language model.
         self.nlp = spacy.load(spacy_model)
         # Add the entity linker pipeline component if not already present.

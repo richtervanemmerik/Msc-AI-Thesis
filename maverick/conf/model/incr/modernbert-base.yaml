@@ -33,4 +33,4 @@ module:
     kg_unknown_handling: "unk_embed"      # Options: "zero_vector", "unk_embed"
     use_random_kg_all: False              
     use_random_kg_selective: False     
-    KGE_model_name: "TransE" # Options: "TransE", "ComplEx"   
+    kge_model_name: "TransE" # Options: "TransE", "ComplEx"   

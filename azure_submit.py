@@ -31,7 +31,7 @@ COMMAND = (
     "model.module.model.kg_unknown_handling=${{inputs.kg_unknown_handling}} "
     "model.module.model.use_random_kg_all=${{inputs.use_random_kg_all}} "
     "model.module.model.use_random_kg_selective=${{inputs.use_random_kg_selective}} "
-    "model.module.kge_model_name=${{inputs.kge_model_name}} "
+    "model.module.model.kge_model_name=${{inputs.kge_model_name}} "
     # -------- trainer ---------------------------------------
     "train.pl_trainer.accumulate_grad_batches=${{inputs.gradient_accumulation_steps}} "
     "train.pl_trainer.max_epochs=${{inputs.epochs}} "
@@ -71,7 +71,7 @@ if __name__ == "__main__":
         use_random_kg_selective=False,
         gradient_accumulation_steps=2,
         patience=120,
-        data="preco".
+        data="preco",
         kge_model_name="TransE",
     )
 
