@@ -1,0 +1,37 @@
+experiment_name: "experiment_preco"
+datamodule:
+  _target_: maverick.data.pl_data_modules.BasePLDataModule
+  dataset:
+    train:
+      _target_: data.datasets.OntonotesDataset
+      name: 'train'
+      path: '/maverick/data/prepare_preco/train_600_preprocessed_preco.jsonl'
+      batch_size: "${data.datamodule.batch_sizes.train}"
+      processed_dataset_path: '/mnt/batch/tasks/shared/LS_root/mounts/clusters/gsidiropoulos2/code/Users/rvanemmerik1/jobs-outputs/${data.experiment_name}/data/cache_1500/answerdotai/ModernBERT-base/preco600/train'
+      tokenizer: "${model.module.model.huggingface_model_name}"
+      max_doc_len: 1500
+    val:
+      _target_: data.datasets.OntonotesDataset
+      name: 'val'
+      path: '/maverick/data/prepare_preco/dev_500_preprocessed_preco.jsonl'
+      batch_size: "${data.datamodule.batch_sizes.train}"
+      processed_dataset_path: '/mnt/batch/tasks/shared/LS_root/mounts/clusters/gsidiropoulos2/code/Users/rvanemmerik1/jobs-outputs/${data.experiment_name}/data/cache_1500/answerdotai/ModernBERT-base/preco_600/val'
+      tokenizer: "${model.module.model.huggingface_model_name}"
+    test:
+      _target_: data.datasets.OntonotesDataset
+      name: 'test'
+      path: '/maverick/data/prepare_preco/test_preprocessed_preco.jsonl'
+      batch_size: "${data.datamodule.batch_sizes.train}"
+      processed_dataset_path: '/mnt/batch/tasks/shared/LS_root/mounts/clusters/gsidiropoulos2/code/Users/rvanemmerik1/jobs-outputs/${data.experiment_name}/data/cache_1500/answerdotai/ModernBERT-base/preco600/test'
+      tokenizer: "${model.module.model.huggingface_model_name}"
+
+  batch_sizes:
+    train: 1
+    val: 1
+    test: 1
+
+  num_workers:
+    train: 0
+    val: 0
+    test: 0
+

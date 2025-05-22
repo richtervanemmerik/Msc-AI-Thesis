@@ -11,14 +11,14 @@ debugg.py
 maverick_coref.egg-info/*
 checkpoints/*
 wandb/*
-maverick/experiments/*
-maverick/data/cache_1500/*
-maverick/data/litbank/*
-maverick/data/Wikidata/*
-maverick/data/ogbl-wikikg2/*
-maverick/data/OntoGUM/*
-maverick/data/prepare_preco/*
-maverick/conf/root.yaml
+src/maverick/experiments/*
+src/maverick/data/cache_1500/*
+src/maverick/data/litbank/*
+src/maverick/data/Wikidata/*
+src/maverick/data/ogbl-wikikg2/*
+src/maverick/data/OntoGUM/*
+src/maverick/data/prepare_preco/*
+src/maverick/conf/root.yaml
 .repo-to-text-settings.yaml
 # Created by https://www.toptal.com/developers/gitignore/api/jetbrains+all,vscode,python,jupyternotebooks,linux,windows,macos
 # Edit at https://www.toptal.com/developers/gitignore?templates=jetbrains+all,vscode,python,jupyternotebooks,linux,windows,macos

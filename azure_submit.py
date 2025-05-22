@@ -9,11 +9,11 @@ BASE_IMAGE = (
     "kpmgnldankfwepacr.azurecr.io/richter-master-thesis/maverick-training:latest"
 )
 ENVIRONMENT_NAME = "maverick"
-COMPUTE_NAME = "richter-se-a1002"
+COMPUTE_NAME = "richter-se-a100"
 CONDA_FILE_PATH = (
     "/home/azureuser/cloudfiles/code/Users/rvanemmerik1/Msc-AI-Thesis/maverick.yml"
 )
-
+EXPERIMENT_NAME = "complex-preco"
 
 COMMAND = (
     "python train.py "
@@ -77,7 +77,7 @@ if __name__ == "__main__":
 
     ml_client.create_or_update(
         command(
-            code="./maverick/",
+            code="./src/",
             command=COMMAND,
             inputs=job_input_args,
             environment=f"{ENVIRONMENT_NAME}@latest",
@@ -85,7 +85,7 @@ if __name__ == "__main__":
             environment_variables={
                 "WANDB_API_KEY": "ed6f1e0fdb4796d6a97528308f1bbc0aa4c043fe",
                 "HYDRA_FULL_ERROR": 1,
-                "HF_HOME": "/mnt/hf_cache",
+                "HF_HOME": "/mnt/batch/tasks/shared/LS_root/mounts/clusters/gsidiropoulos2/code/Users/rvanemmerik1/jobs-outputs/{EXPERIMENT_NAME}/hf_cache",
             },
         )
     )

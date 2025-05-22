@@ -4,24 +4,25 @@ datamodule:
     train:
       _target_: data.datasets.OntonotesDataset
       name: 'train'
-      path: '/root/data/prepare_preco/train_600_preprocessed_preco.jsonl'
+      path: '/maverick/data/OntoGUM/train_ontogum.jsonlines'
       batch_size: "${data.datamodule.batch_sizes.train}"
-      processed_dataset_path: 'data/cache_${data.datamodule.dataset.train.max_doc_len}/${model.module.model.huggingface_model_name}/preco/train'
+      processed_dataset_path: '/maverick/data/cache_${data.datamodule.dataset.train.max_doc_len}/${model.module.model.huggingface_model_name}/ontonotes/train'
       tokenizer: "${model.module.model.huggingface_model_name}"
       max_doc_len: 1500
     val:
       _target_: data.datasets.OntonotesDataset
       name: 'val'
-      path: '/root/data/prepare_preco/dev_500_preprocessed_preco.jsonl'
+      path: '/maverick/data/OntoGUM/dev_ontogum.jsonlines'
       batch_size: "${data.datamodule.batch_sizes.train}"
-      processed_dataset_path: 'data/cache_${data.datamodule.dataset.train.max_doc_len}/${model.module.model.huggingface_model_name}/preco/val'
+      processed_dataset_path: '/maverick/data/cache_${data.datamodule.dataset.train.max_doc_len}/${model.module.model.huggingface_model_name}/ontonotes/val'
       tokenizer: "${model.module.model.huggingface_model_name}"
     test:
       _target_: data.datasets.OntonotesDataset
       name: 'test'
-      path: '/root/data/prepare_preco/test_preprocessed_preco.jsonl'
+      path: '/maverick/data/OntoGUM/test_ontogum.jsonlines'
+
       batch_size: "${data.datamodule.batch_sizes.train}"
-      processed_dataset_path: 'data/cache_${data.datamodule.dataset.train.max_doc_len}/${model.module.model.huggingface_model_name}/preco/test'
+      processed_dataset_path: '/maverick/data/cache_${data.datamodule.dataset.train.max_doc_len}/${model.module.model.huggingface_model_name}/ontonotes/test'
       tokenizer: "${model.module.model.huggingface_model_name}"
 
 
@@ -32,7 +33,7 @@ datamodule:
     test: 1
 
   num_workers:
-    train: 0
-    val: 0
-    test: 0
+    train: 3
+    val: 3
+    test: 3
 
