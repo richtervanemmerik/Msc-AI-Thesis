@@ -85,7 +85,7 @@ if __name__ == "__main__":
             environment_variables={
                 "WANDB_API_KEY": "ed6f1e0fdb4796d6a97528308f1bbc0aa4c043fe",
                 "HYDRA_FULL_ERROR": 1,
-                "HF_HOME": "/mnt/batch/tasks/shared/LS_root/mounts/clusters/gsidiropoulos2/code/Users/rvanemmerik1/jobs-outputs/{EXPERIMENT_NAME}/hf_cache",
+                "HF_HOME": "/mnt/batch/tasks/shared/LS_root/mounts/clusters/{COMPUTE_NAME}/code/Users/rvanemmerik1/jobs-outputs/{EXPERIMENT_NAME}/hf_cache",
             },
         )
     )

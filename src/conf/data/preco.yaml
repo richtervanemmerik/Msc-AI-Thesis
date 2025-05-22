@@ -1,4 +1,5 @@
 experiment_name: "experiment_preco"
+compute_name: "richter-se-a100"
 datamodule:
   _target_: maverick.data.pl_data_modules.BasePLDataModule
   dataset:
@@ -7,7 +8,7 @@ datamodule:
       name: 'train'
       path: '/maverick/data/prepare_preco/train_600_preprocessed_preco.jsonl'
       batch_size: "${data.datamodule.batch_sizes.train}"
-      processed_dataset_path: '/mnt/batch/tasks/shared/LS_root/mounts/clusters/gsidiropoulos2/code/Users/rvanemmerik1/jobs-outputs/${data.experiment_name}/data/cache_1500/answerdotai/ModernBERT-base/preco600/train'
+      processed_dataset_path: '/mnt/batch/tasks/shared/LS_root/mounts/clusters/${data.compute_name}/code/Users/rvanemmerik1/jobs-outputs/${data.experiment_name}/data/cache_1500/answerdotai/ModernBERT-base/preco600/train'
       tokenizer: "${model.module.model.huggingface_model_name}"
       max_doc_len: 1500
     val:
@@ -15,14 +16,14 @@ datamodule:
       name: 'val'
       path: '/maverick/data/prepare_preco/dev_500_preprocessed_preco.jsonl'
       batch_size: "${data.datamodule.batch_sizes.train}"
-      processed_dataset_path: '/mnt/batch/tasks/shared/LS_root/mounts/clusters/gsidiropoulos2/code/Users/rvanemmerik1/jobs-outputs/${data.experiment_name}/data/cache_1500/answerdotai/ModernBERT-base/preco_600/val'
+      processed_dataset_path: '/mnt/batch/tasks/shared/LS_root/mounts/clusters/${data.compute_name}/code/Users/rvanemmerik1/jobs-outputs/${data.experiment_name}/data/cache_1500/answerdotai/ModernBERT-base/preco_600/val'
       tokenizer: "${model.module.model.huggingface_model_name}"
     test:
       _target_: data.datasets.OntonotesDataset
       name: 'test'
       path: '/maverick/data/prepare_preco/test_preprocessed_preco.jsonl'
       batch_size: "${data.datamodule.batch_sizes.train}"
-      processed_dataset_path: '/mnt/batch/tasks/shared/LS_root/mounts/clusters/gsidiropoulos2/code/Users/rvanemmerik1/jobs-outputs/${data.experiment_name}/data/cache_1500/answerdotai/ModernBERT-base/preco600/test'
+      processed_dataset_path: '/mnt/batch/tasks/shared/LS_root/mounts/clusters/${data.compute_name}/code/Users/rvanemmerik1/jobs-outputs/${data.experiment_name}/data/cache_1500/answerdotai/ModernBERT-base/preco600/test'
       tokenizer: "${model.module.model.huggingface_model_name}"
 
   batch_sizes:
