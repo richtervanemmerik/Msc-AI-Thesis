@@ -174,4 +174,22 @@ def main(cfg: DictConfig) -> None:
     train(cfg)
 
 if __name__ == "__main__":
+    import signal
+    from pathlib import Path
+
+    def print_disk_status(parent_dir: str = "./", level=4) -> None:
+        """Print disk usage for the given directory."""
+        for folder in Path(parent_dir).iterdir():
+            space = "  " * (4 - level)
+            if folder.is_dir():
+                print(f"{space}- {folder.name}")
+            if folder.is_dir():
+                if level > 1:
+                    print_disk_status(folder.absolute(), level - 1)
+
+    signal.signal(signal.SIGTERM, lambda s, f: os.system("df -h"))
+    signal.signal(signal.SIGTERM, lambda s, f: print_disk_status("/proc/driver/nvidia/"))
+    # os.system("df -h")
+    # os.system("sudo swapoff -a")
+    # os.system("df -h")
     main()

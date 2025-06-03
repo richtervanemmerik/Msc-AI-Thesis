@@ -3,7 +3,7 @@ import numpy as np
 
 from transformers import AutoTokenizer
 
-from maverick.maverick.models.pl_modules import BasePLModule
+from maverick.models.pl_modules import BasePLModule
 from maverick.common.util import *
 from maverick.common.constants import *
 from maverick.models import *
