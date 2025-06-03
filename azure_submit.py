@@ -13,7 +13,7 @@ COMPUTE_NAME = "richter-se-a100"
 CONDA_FILE_PATH = (
     "/home/azureuser/cloudfiles/code/Users/rvanemmerik1/Msc-AI-Thesis/maverick.yml"
 )
-EXPERIMENT_NAME = "complex-preco"
+
 
 COMMAND = (
     "python train.py "
@@ -62,8 +62,8 @@ if __name__ == "__main__":
         epochs=50,
         learning_rate=3e-5,
         weight_decay=0.01,
-        warmup_steps=1500,
-        training_steps=15000,
+        warmup_steps=500,
+        training_steps=5000,
         incremental_layers=1,
         kg_fusion_strategy="fusion",
         kg_unknown_handling="unk_embed",
@@ -71,7 +71,7 @@ if __name__ == "__main__":
         use_random_kg_selective=False,
         gradient_accumulation_steps=2,
         patience=120,
-        data="preco",
+        data="litbank",
         kge_model_name="TransE",
     )
 
@@ -85,7 +85,7 @@ if __name__ == "__main__":
             environment_variables={
                 "WANDB_API_KEY": "ed6f1e0fdb4796d6a97528308f1bbc0aa4c043fe",
                 "HYDRA_FULL_ERROR": 1,
-                "HF_HOME": "/mnt/batch/tasks/shared/LS_root/mounts/clusters/{COMPUTE_NAME}/code/Users/rvanemmerik1/jobs-outputs/{EXPERIMENT_NAME}/hf_cache",
+                "HF_HOME": "/tmp/hf_cache",
             },
         )
     )
