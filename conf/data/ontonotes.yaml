@@ -2,7 +2,7 @@ datamodule:
   _target_: maverick.data.pl_data_modules.BasePLDataModule
   dataset:
     train:
-      _target_: data.datasets.OntonotesDataset
+      _target_: maverick.data.datasets.OntonotesDataset
       name: 'train'
       path: 'data/prepare_ontonotes/train.english.jsonlines'
       # path: 'data/prepare_preco/train_36120_preprocessed_preco.jsonl'
@@ -14,7 +14,7 @@ datamodule:
       tokenizer: "${model.module.model.huggingface_model_name}"
       max_doc_len: 1500
     val:
-      _target_: data.datasets.OntonotesDataset
+      _target_: maverick.data.datasets.OntonotesDataset
       name: 'val'
       path: 'data/prepare_ontonotes/dev.english.jsonlines'
       # path: 'data/prepare_preco/dev_500_preprocessed_preco.jsonl'
@@ -25,7 +25,7 @@ datamodule:
       processed_dataset_path: 'data/cache_${data.datamodule.dataset.train.max_doc_len}/${model.module.model.huggingface_model_name}/ontonotes/val'
       tokenizer: "${model.module.model.huggingface_model_name}"
     test:
-      _target_: data.datasets.OntonotesDataset
+      _target_: maverick.data.datasets.OntonotesDataset
       name: 'test'
       path: 'data/prepare_ontonotes/test.english.jsonlines'
       # path: 'data/prepare_preco/test_preprocessed_preco.jsonl'

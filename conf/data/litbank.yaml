@@ -2,7 +2,7 @@ datamodule:
   _target_: maverick.data.pl_data_modules.BasePLDataModule
   dataset:
     train:
-      _target_: data.datasets.OntonotesDataset
+      _target_: maverick.data.datasets.OntonotesDataset
       name: 'train'
       ## [!CHANGE]
       # path: '/root/data/litbank/official/train-splitted.english.jsonlines'  
@@ -12,14 +12,14 @@ datamodule:
       tokenizer: "${model.module.model.huggingface_model_name}"
       max_doc_len: 1500
     val:
-      _target_: data.datasets.OntonotesDataset
+      _target_: maverick.data.datasets.OntonotesDataset
       name: 'val'
       path: '/root/data/litbank/official/dev.english.jsonlines'
       batch_size: "${data.datamodule.batch_sizes.train}"
       processed_dataset_path: 'data/cache_${data.datamodule.dataset.train.max_doc_len}/${model.module.model.huggingface_model_name}/ontonotes/val'
       tokenizer: "${model.module.model.huggingface_model_name}"
     test:
-      _target_: data.datasets.OntonotesDataset
+      _target_: maverick.data.datasets.OntonotesDataset
       name: 'test'
       path: '/root/data/litbank/official/test.english.jsonlines'
 

@@ -2,27 +2,27 @@ datamodule:
   _target_: maverick.data.pl_data_modules.BasePLDataModule
   dataset:
     train:
-      _target_: data.datasets.OntonotesDataset
+      _target_: maverick.data.datasets.OntonotesDataset
       name: 'train'
       path: '/maverick/data/OntoGUM/train_ontogum.jsonlines'
       batch_size: "${data.datamodule.batch_sizes.train}"
-      processed_dataset_path: '/maverick/data/cache_${data.datamodule.dataset.train.max_doc_len}/${model.module.model.huggingface_model_name}/ontonotes/train'
+      processed_dataset_path: '/tmp/ontogum/train'
       tokenizer: "${model.module.model.huggingface_model_name}"
       max_doc_len: 1500
     val:
-      _target_: data.datasets.OntonotesDataset
+      _target_: maverick.data.datasets.OntonotesDataset
       name: 'val'
       path: '/maverick/data/OntoGUM/dev_ontogum.jsonlines'
       batch_size: "${data.datamodule.batch_sizes.train}"
-      processed_dataset_path: '/maverick/data/cache_${data.datamodule.dataset.train.max_doc_len}/${model.module.model.huggingface_model_name}/ontonotes/val'
+      processed_dataset_path: '/tmp/ontogum/val'
       tokenizer: "${model.module.model.huggingface_model_name}"
     test:
-      _target_: data.datasets.OntonotesDataset
+      _target_: maverick.data.datasets.OntonotesDataset
       name: 'test'
       path: '/maverick/data/OntoGUM/test_ontogum.jsonlines'
 
       batch_size: "${data.datamodule.batch_sizes.train}"
-      processed_dataset_path: '/maverick/data/cache_${data.datamodule.dataset.train.max_doc_len}/${model.module.model.huggingface_model_name}/ontonotes/test'
+      processed_dataset_path: '/tmp/ontogum/test'
       tokenizer: "${model.module.model.huggingface_model_name}"
 
 

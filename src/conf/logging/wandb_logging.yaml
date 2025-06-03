@@ -1,13 +1,11 @@
 # don't forget loggers.login() for the first usage.
 
 log: True  # set to False to avoid the logging
-experiment_name: "experiment-preco"
-compute_name: "richter-se-a100"
 wandb_arg:
   _target_: pytorch_lightning.loggers.WandbLogger
   name: ${train.model_name}
   project: ${train.project_name}
-  save_dir: /mnt/batch/tasks/shared/LS_root/mounts/clusters/${logging.compute_name}/code/Users/rvanemmerik1/jobs-outputs/${logging.experiment_name}
+  save_dir: /tmp
   log_model: False
   mode: 'online'
 

@@ -2,7 +2,7 @@ datamodule:
   _target_: maverick.data.pl_data_modules.BasePLDataModule
   dataset:
     test:
-      _target_: data.datasets.OntonotesDataset
+      _target_: maverick.data.datasets.OntonotesDataset
       name: 'test'
       path: 'data/gap/data/gap-test-onto.jsonl'  
       batch_size: "${data.datamodule.batch_sizes.train}"
