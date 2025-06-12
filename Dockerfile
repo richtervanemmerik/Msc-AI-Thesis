@@ -15,12 +15,8 @@ RUN python -m spacy download en_core_web_sm
 RUN python -m spacy download en_core_web_lg
 RUN python -m spacy download en_core_web_trf
 
-COPY . /maverick
-WORKDIR /maverick
-RUN pip install -e .
-
-RUN mkdir /root/data
-COPY ./data /root/data
+RUN mkdir -p /maverick/data
+COPY ./data /maverick/data
 
 # Default command
 CMD ["/bin/bash"]
