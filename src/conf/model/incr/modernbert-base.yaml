@@ -29,8 +29,11 @@ module:
     TransE_embeddings_path: "/maverick/data/Wikidata/embeddings/dimension_100/transe/entity2vec.bin"
     ComplEx_entity2id_path: "/maverick/data/ogbl-wikikg2/ent_id.txt"
     ComplEx_embeddings_path: "/maverick/data/ogbl-wikikg2/entity_embedding.bin"
-    kg_fusion_strategy: "gating"       # Options: "baseline", "fusion", "add", "gating", "none"
+    kg_fusion_strategy: "fusion"       # Options: "baseline", "fusion", "add", "gating", "none"
     kg_unknown_handling: "unk_embed"      # Options: "zero_vector", "unk_embed"
     use_random_kg_all: False              
-    use_random_kg_selective: False     
+    use_random_kg_selective: False
+    zero_kg: False     
+    kg_use_train: True
+    kg_use_test: True
     kge_model_name: "TransE" # Options: "TransE", "ComplEx"   

@@ -4,8 +4,6 @@ datamodule:
     train:
       _target_: maverick.data.datasets.OntonotesDataset
       name: 'train'
-      ## [!CHANGE]
-      # path: '/root/data/litbank/official/train-splitted.english.jsonlines'  
       path: '/maverick/data/litbank/official/train-splitted.english.jsonlines'
       batch_size: "${data.datamodule.batch_sizes.train}"
       processed_dataset_path: '/tmp/ontonotes/train'
