@@ -1,7 +1,6 @@
 <h1 align="center">
   KGE-COREF
 </h1>
-<div align="center">
 
 
 This repository contains the official implementation of Enhancing Coreference Resolution
