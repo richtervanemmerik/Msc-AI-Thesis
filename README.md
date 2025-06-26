@@ -35,12 +35,26 @@ python -m spacy download en_core_web_trf
 
 
 ### 4. Data 
-Official Links:
+Corpora official Links:
 - [PreCo](https://drive.google.com/file/d/1q0oMt1Ynitsww9GkuhuwNZNq6SjByu-Y/view)
 - [LitBank](https://github.com/dbamman/litbank/tree/master/coref/conll)
 
 Since those datasets usually require a preprocessing step to obtain the OntoNotes-like jsonlines format, the original maverick released a ready-to-use version:
 https://drive.google.com/drive/u/3/folders/18dtd1Qt4h7vezlm2G0hF72aqFcAEFCUo.
+
+#### Knowledge Graph Embedding Resources
+
+To use knowledge graph embeddings in this project, here are the used resources:
+
+- **OpenKE Toolkit:**  
+  [OpenKE Download Page](http://139.129.163.161/index/toolkits)
+
+- **SSL Relation Prediction (Facebook Research):**  
+  [GitHub Repository](https://github.com/facebookresearch/ssl-relation-prediction)
+
+These toolkits can be used to generate or donwload the knowledge graph embeddings.
+
+
 
 
 ### 5. Hydra
