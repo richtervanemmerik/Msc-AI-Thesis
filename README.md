@@ -72,11 +72,13 @@ This repository uses [Hydra](https://hydra.cc/) configuration environment.
 To train a Maverick model, modify *conf/root.yaml* and *conf/model/* with your custom setup. All model configuration can be set in *conf/model/*. Except the SpaCy linker. The default is en_core_web_trf. If you want a different model, change in *src/maverick/common/util.py*.
 
 
-To train a new model, follow the steps in  [Environment](#environment) section and run the following script:
+To train a new model, set the right congfiguration for your setup in *conf/root.yaml* and *conf/model/*, the run the following script:
 ```
 conda activate kge_env
 python src/train.py
 ```
+If you encounter a dataset error, the data path files are likely incorrect. Please update the paths to match your system configuration.
+
 ### 7. Azure ML
 
 For Azure ML job submission, see [`azure_submit.py`](azure_submit.py) and [`run-maverick-job.sh`](run-maverick-job.sh).

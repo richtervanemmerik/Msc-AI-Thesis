@@ -14,8 +14,8 @@ module:
     scale_parameter: False
     relative_step: False
   lr_scheduler: 
-    num_warmup_steps: 500 ## --500 litbank --90300 preco
-    num_training_steps: 5000 ## --5000 litbank --900300 preco
+    num_warmup_steps: 500 ## --500 litbank
+    num_training_steps: 5000 ## --5000 litbank
   opt: "Adafactor" #RAdam
   model:
     _target_: models.model_incr.Maverick_incr
