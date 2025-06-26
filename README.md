@@ -152,12 +152,9 @@ N.B. Remember to put the zip file *ontonotes-release-5.0_LDC2013T19.tgz* in the 
 
 ## Data 
 Official Links:
-- [OntoNotes](https://catalog.ldc.upenn.edu/LDC2013T19)
 - [PreCo](https://drive.google.com/file/d/1q0oMt1Ynitsww9GkuhuwNZNq6SjByu-Y/view)
 - [LitBank](https://github.com/dbamman/litbank/tree/master/coref/conll)
-- [WikiCoref](http://rali.iro.umontreal.ca/rali/?q=en/wikicoref)
-
-Since those datasets usually require a preprocessing step to obtain the OntoNotes-like jsonlines format, we release ready-to-use version:
+Since those datasets usually require a preprocessing step to obtain the OntoNotes-like jsonlines format, the original maverick released a ready-to-use version:
 https://drive.google.com/drive/u/3/folders/18dtd1Qt4h7vezlm2G0hF72aqFcAEFCUo.
 
 
@@ -178,54 +175,7 @@ By default, this file contains the settings for training and evaluating on the O
 
 To train a new model, follow the steps in  [Environment](#environment) section and run the following script:
 ```
-conda activate maverick_env
-python maverick/train.py
+conda activate kge_env
+python src/train.py
 ```
-
-
-## Evaluate
-To evaluate an existing model, it is necessary to set up two different environment variables.
-1. Set the dataset path in conf/root.yaml, by default it is set to OntoNotes.
-2. Set the model checkpoint path in conf/evaluation/default_evaluation.yaml.
-
-Finally run the following:
-```
-conda activate env_name
-python maverick/evaluate.py
-```
-This will directly output the CoNLL-2012 scores, and, under the experiments/ folder,  a output.jsonlines file containing the model outputs in OntoNotes style.
-
-### Replicate paper results
-The weights of each model can be found in the [SapienzaNLP huggingface hub](https://huggingface.co/collections/sapienzanlp/maverick-coreference-resolution-66a750a50246fad8d9c7086a).
-To replicate any of the paper results,  download the weights.ckpt of a model from the its model card files and follow the steps reported in the [Evaluate](#evaluate) section.
-
-E.G. to replicate the state of the art results of *Maverick_mes* on OntoNotes:
-- download the weights from [here](https://huggingface.co/sapienzanlp/maverick-mes-ontonotes/blob/main/weights.ckpt).
-- copy the local path of the weights in conf/evaluation/default_evaluation.yaml.
-- activate the project's conda environment with *conda activate maverick_coref*.
-- run *python maverick/evaluate.py*
-
-# Citation
-This work has been published at [ACL 2024 main conference](https://aclanthology.org/2024.acl-long.722.pdf). If you use any part, please consider citing our paper as follows:
-```bibtex
-@inproceedings{martinelli-etal-2024-maverick,
-    title = "Maverick: Efficient and Accurate Coreference Resolution Defying Recent Trends",
-    author = "Martinelli, Giuliano  and
-      Barba, Edoardo  and
-      Navigli, Roberto",
-    booktitle = "Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)",
-    month = aug,
-    year = "2024",
-    address = "Bangkok, Thailand",
-    publisher = "Association for Computational Linguistics",
-    url = "https://aclanthology.org/2024.acl-long.722",
-    pages = "13380--13394",
-}
-```
-
-
-## License
-
-The data and software are licensed under [Creative Commons Attribution-NonCommercial-ShareAlike 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/).
-
 
