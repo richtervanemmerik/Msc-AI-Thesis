@@ -27,7 +27,7 @@ from datetime import timedelta
 from pytorch_lightning.callbacks import Timer
 
 torch.set_printoptions(edgeitems=100)
-os.environ["WANDB_PROJECT"] = "Maverick_incr"
+os.environ["WANDB_PROJECT"] = "KGE-COREF"
 
 def train(conf: omegaconf.DictConfig) -> None:
     # fancy logger

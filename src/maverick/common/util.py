@@ -9,6 +9,7 @@ from nltk import sent_tokenize
 from torch.nn import Module, Linear, LayerNorm, Dropout, GELU, GLU
 from torch import nn
 import torch.nn.functional as F
+import torch.utils.checkpoint as checkpoint
 
 from maverick.common.constants import *
 
@@ -254,34 +255,6 @@ class FullyConnectedLayer(Module):
         return temp
 
     
-import torch.utils.checkpoint as checkpoint
-
-class ResidualFullyConnectedLayer(nn.Module):
-    def __init__(self, input_dim, output_dim, hidden_size, dropout_prob):
-        super(ResidualFullyConnectedLayer, self).__init__()
-        self.dense1 = nn.Linear(input_dim, hidden_size)
-        self.dense = nn.Linear(hidden_size, output_dim)
-        self.activation = nn.GELU()
-        self.dropout = nn.Dropout(dropout_prob)
-        self.layer_norm = nn.LayerNorm(hidden_size)
-
-        # Create a projection if dimensions differ.
-        self.residual_proj = nn.Linear(input_dim, output_dim) if input_dim != output_dim else None
-
-    def forward_fn(self, inputs):
-        residual = inputs
-        x = self.dense1(inputs)
-        x = self.dropout(x)
-        x = self.activation(x)
-        x = self.layer_norm(x)
-        x = self.dense(x)
-        if self.residual_proj is not None:
-            residual = self.residual_proj(residual)
-        return x + residual
-
-    def forward(self, inputs):
-        # Wrap the forward pass with checkpoint to reduce memory usage.
-        return checkpoint.checkpoint(self.forward_fn, inputs)
 
 class RepresentationLayer(torch.nn.Module):
     def __init__(self, type, input_dim, output_dim, hidden_dim, **kwargs) -> None:
