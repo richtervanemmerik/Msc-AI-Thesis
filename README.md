@@ -1,44 +1,27 @@
 <h1 align="center">
-  Maverick Coref
+  KGE-COREF
 </h1>
 <div align="center">
 
 
-[![Conference](https://img.shields.io/badge/ACL%202024%20Paper-red)](https://aclanthology.org/2024.acl-long.722.pdf)
-[![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-green.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
-[![Pip Package](https://img.shields.io/badge/🐍%20Python%20package-blue)](https://pypi.org/project/maverick-coref/)
-[![git](https://img.shields.io/badge/Git%20Repo%20-yellow.svg)](https://github.com/SapienzaNLP/maverick-coref)
-</div>
+This repository contains the official implementation of Enhancing Coreference Resolution
+with Knowledge Graph Embeddings
 
+---
 
-This is the official repository for [*Maverick:
-Efficient and Accurate Coreference Resolution Defying Recent Trends*](https://aclanthology.org/2024.acl-long.722).  
+## 🚀 Getting Started
 
+### 1. Clone the Repository
 
-# Python Package
-The `maverick-coref` Python package provides an easy API to use Maverick models, enabling efficient and accurate coreference resolution with few lines of code.
-
-Install the library from [PyPI](https://pypi.org/project/maverick-coref/)
-
-```bash
-pip install maverick-coref
-```
-or from source 
-
-```bash
-git clone https://github.com/SapienzaNLP/maverick-coref.git
-cd maverick-coref
-pip install -e .
+```sh
+git clone https://github.com/richtervanemmerik/Msc-AI-Thesis.git
 ```
 
-## Loading a Pretrained Model
-Maverick models can be loaded using huggingface_id or local path:
-```bash
-from maverick import Maverick
-model = Maverick(
-  hf_name_or_path = "maverick_hf_name" | "maverick_ckpt_path", default = "sapienzanlp/maverick-mes-ontonotes"
-  device = "cpu" | "cuda", default = "cuda:0"
-)
+### 2. Install Requirements
+We recommend using conda for environment management.
+```sh
+conda env create -f kge_coref.yml
+conda activate kge_coref-env
 ```
 
 ## Available Models
