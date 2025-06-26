@@ -46,6 +46,9 @@ class Maverick_incr(torch.nn.Module):
         # document transformer encoder
         self.kg_fusion_strategy = kwargs["kg_fusion_strategy"] # "baseline", "concat_linear", "additive", "gated"
         self.kg_unknown_handling = kwargs["kg_unknown_handling"] # "zero_vector", "unk_embed"
+        self.zero_kg = kwargs["zero_kg"]  # whether to use zero vector for kge
+        self.kg_use_train = kwargs["kg_use_train"]  # True = default “both”
+        self.kg_use_test  = kwargs["kg_use_test"]  #   (set False for the ablations)
         self.use_random_kg_all = kwargs["use_random_kg_all"] # Apply random KGE to ALL mentions
         self.use_random_kg_selective = kwargs["use_random_kg_selective"]
         self.encoder_hf_model_name = kwargs["huggingface_model_name"]
@@ -115,20 +118,7 @@ class Maverick_incr(torch.nn.Module):
         self.incremental_transformer = MentionClusterClassifier(model=self.incremental_model)
 
         # encodes mentions for incremental clustering
-        if self.kg_fusion_strategy == "concat":
-            self.incremental_span_encoder = RepresentationLayer(
-                type=self.representation_layer_type,
-                input_dim=self.token_hidden_size * 2 + self.kg_embedding_dim,
-                output_dim=self.incremental_model_hidden_size,
-                hidden_dim=int(self.mention_hidden_size / 2),
-            )
-        else:    
-            self.incremental_span_encoder = RepresentationLayer(
-            type=self.representation_layer_type,
-            input_dim=self.token_hidden_size * 2,
-            output_dim=self.incremental_model_hidden_size,
-            hidden_dim=int(self.mention_hidden_size / 2),
-            )
+        self._init_span_encoders()
 
         # mention extraction layers
         # representation of start token
@@ -163,6 +153,64 @@ class Maverick_incr(torch.nn.Module):
             hidden_dim=self.token_hidden_size,
         )
 
+    def _init_span_encoders(self):
+        """
+        Build span-encoders so that any (kg_use_train, kg_use_test, kg_fusion_strategy)
+        combination is valid.  It sets:
+
+            • self.span_enc                 – single-encoder path, OR
+            • self.span_enc_plain
+            self.span_enc_with_kg         – dual-encoder path
+            • self._dual_span (bool)        – flag used later in forward()
+        """
+
+        plain_in   = self.token_hidden_size * 2
+        concat_in  = plain_in + self.kg_embedding_dim
+        out_dim    = self.incremental_model_hidden_size
+        hid_dim    = int(self.mention_hidden_size / 2)
+
+        # ---------- strategy ≠ "concat" -------------------------------
+        if self.kg_fusion_strategy != "concat":
+            self.span_enc = RepresentationLayer(
+                type=self.representation_layer_type,
+                input_dim=plain_in,
+                output_dim=out_dim,
+                hidden_dim=hid_dim,
+            )
+            self._dual_span = False
+            return
+
+        # ---------- ABLATION Train only or Test only: strategy = "concat" --------------
+        # ---------- strategy = "concat" -------------------------------
+        same_setting = (self.kg_use_train == self.kg_use_test)
+
+        if same_setting:
+            # One encoder is enough; pick its input size once.
+            input_dim = concat_in if self.kg_use_train else plain_in
+            self.span_enc = RepresentationLayer(
+                type=self.representation_layer_type,
+                input_dim=input_dim,
+                output_dim=out_dim,
+                hidden_dim=hid_dim,
+            )
+            self._dual_span = False
+        else:
+            # Train and test differ – build TWO encoders.
+            self.span_enc_plain = RepresentationLayer(
+                type=self.representation_layer_type,
+                input_dim=plain_in,
+                output_dim=out_dim,
+                hidden_dim=hid_dim,
+            )
+            self.span_enc_with_kg = RepresentationLayer(
+                type=self.representation_layer_type,
+                input_dim=concat_in,
+                output_dim=out_dim,
+                hidden_dim=hid_dim,
+            )
+            self._dual_span = True
+
+
     def load_entity_ids(self, mapping_file):
         """Loads entity-to-index mapping from a file."""
         entity_to_index = {}
@@ -195,6 +243,14 @@ class Maverick_incr(torch.nn.Module):
             kg_emb = torch.zeros_like(kg_emb) # Overwrite UNK embed with zeros
 
         return kg_emb.to(self.encoder.device) # Ensure device consistency
+
+    def _kg_active(self, stage: str) -> bool:
+        """Returns True if KG embeddings should be injected in the current stage."""
+        if stage == "train":
+            return self.kg_use_train
+        else:                       # "valid" / "test"
+            return self.kg_use_test
+    
     
     def augment_mention_reps_with_kg(
             self,
@@ -203,7 +259,8 @@ class Maverick_incr(torch.nn.Module):
             tokens,
             bidx: int = 0,
             combining_method: str = "fusion",
-            use_random_kg_id: bool = False):
+            use_random_kg_id: bool = False,
+            kg_enabled: bool = True):
 
         fused_reps = []
         mention_hidden_states = mention_hidden_states.squeeze(0)        # (N, H)
@@ -213,6 +270,10 @@ class Maverick_incr(torch.nn.Module):
         if self.kg_fusion_strategy == "baseline":
             return mention_hidden_states, [] # Return original states and empty list of enhanced mentions
 
+        if not kg_enabled:
+            # Skip KG entirely: return the raw mention states and an empty list
+            return mention_hidden_states, []    
+
         can_use_random = use_random_kg_id and bool(self._all_entity_ids)
         if use_random_kg_id and not can_use_random:
             print("Warning: use_random_kg_id=True but no entity IDs are available.")
@@ -220,25 +281,28 @@ class Maverick_incr(torch.nn.Module):
         for i, (start_idx, end_idx) in enumerate(map(tuple, mention_idxs.tolist())):
             span_tokens  = tokens[bidx][start_idx:end_idx + 1]
             mention_text = " ".join(span_tokens)
+            # -------- ablation ----------
+            if self.zero_kg:
+                kg_emb = torch.zeros_like(kg_emb)
+            else:    
+                entity_id = self.entity_linker.get_entity(mention_text)
+                final_entity_id = entity_id # Start with the linked ID
 
-            entity_id = self.entity_linker.get_entity(mention_text)
-            final_entity_id = entity_id # Start with the linked ID
+                if self.use_random_kg_all:
+                    # Always replace with a random ID
+                    final_entity_id = random.choice(self._all_entity_ids)
+                elif self.use_random_kg_selective and entity_id is not None:
+                    # Replace only if successfully linked initially
+                    final_entity_id = random.choice(self._all_entity_ids)
 
-            if self.use_random_kg_all:
-                # Always replace with a random ID
-                final_entity_id = random.choice(self._all_entity_ids)
-            elif self.use_random_kg_selective and entity_id is not None:
-                # Replace only if successfully linked initially
-                final_entity_id = random.choice(self._all_entity_ids)
+                kg_emb = self.get_kg_embedding(final_entity_id)
 
-            kg_emb = self.get_kg_embedding(final_entity_id)
-
-            # ---------- bookkeeping ----------
-            if entity_id is None:
-                self._epoch_unlinked += 1
-            else:
-                self._epoch_linked   += 1
-                kg_enhanced_mentions.append((start_idx, end_idx))
+                # ---------- bookkeeping ----------
+                if entity_id is None:
+                    self._epoch_unlinked += 1
+                else:
+                    self._epoch_linked   += 1
+                    kg_enhanced_mentions.append((start_idx, end_idx))
 
             # ---------- fusion ----------
             h_m = mention_hidden_states[i]
@@ -671,12 +735,22 @@ class Maverick_incr(torch.nn.Module):
         mentions_hidden_states = torch.cat((mentions_start_hidden_states, mentions_end_hidden_states), dim=2)
 
         if tokens is not None:
-            mentions_hidden_states_kg, kg_enhanced_mentions = self.augment_mention_reps_with_kg(mention_idxs, mentions_hidden_states, tokens, bidx=0)
+            kg_on = self._kg_active(stage)
+            mentions_hidden_states_kg, kg_enhanced_mentions = self.augment_mention_reps_with_kg(
+                    mention_idxs,
+                    mentions_hidden_states,
+                    tokens,
+                    bidx=0,
+                    kg_enabled=kg_on)
         mentions_hidden_states_kg = mentions_hidden_states_kg.unsqueeze(0)
-        # Build mention representations using the separate function.
-        #mentions_hidden_states = self.build_mention_representations(lhs, mention_idxs)
 
-        mentions_hidden_states = self.incremental_span_encoder(mentions_hidden_states_kg)
+        # ---------- choose span encoder for ablation-------------------------------------------
+        if self._dual_span:        # only true when concat & train≠test
+            span_enc = self.span_enc_with_kg if kg_on else self.span_enc_plain
+        else:
+            span_enc = self.span_enc
+
+        mentions_hidden_states = span_enc(mentions_hidden_states_kg)
 
         coreference_loss, coreferences = self.incremental_span_clustering(
             mentions_hidden_states, mention_idxs, gold_clusters, stage
