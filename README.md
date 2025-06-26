@@ -55,8 +55,8 @@ This repository uses [Hydra](https://hydra.cc/) configuration environment.
 
 
 ### 6. Train
-To train a Maverick model, modify *conf/root.yaml* with your custom setup. 
-By default, this file contains the settings for training and evaluating on the OntoNotes dataset.
+To train a Maverick model, modify *conf/root.yaml* and *conf/model/* with your custom setup. All model configuration can be set in *conf/model/*. Except the SpaCy linker. The default is en_core_web_trf. If you want a different model, change in *src/maverick/common/util.py*.
+
 
 To train a new model, follow the steps in  [Environment](#environment) section and run the following script:
 ```
