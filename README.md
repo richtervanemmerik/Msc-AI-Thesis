@@ -79,7 +79,3 @@ python src/train.py
 ```
 If you encounter a dataset error, the data path files are likely incorrect. Please update the paths to match your system configuration.
 
-### 7. Azure ML
-
-For Azure ML job submission, see [`azure_submit.py`](azure_submit.py) and [`run-maverick-job.sh`](run-maverick-job.sh).
-
